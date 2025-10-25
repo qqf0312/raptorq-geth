@@ -79,6 +79,7 @@ func (f *ForkChoice) ReorgNeeded(current *types.Header, extern *types.Header) (b
 		localTD  = f.chain.GetTd(current.Hash(), current.Number.Uint64())
 		externTd = f.chain.GetTd(extern.Hash(), extern.Number.Uint64())
 	)
+	// log.Info("localTD and externTd", "localTD", localTD, "externTd", externTd)
 	if localTD == nil || externTd == nil {
 		return false, errors.New("missing td")
 	}

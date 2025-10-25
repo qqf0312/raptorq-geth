@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	// "runtime"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
@@ -666,6 +667,35 @@ func WriteReceipts(db ethdb.KeyValueWriter, hash common.Hash, number uint64, rec
 func DeleteReceipts(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
 	if err := db.Delete(blockReceiptsKey(number, hash)); err != nil {
 		log.Crit("Failed to delete block receipts", "err", err)
+	}
+}
+
+func ReadEncodedBlock(db ethdb.Reader, hash common.Hash, number uint64) []byte{
+    // 从 DB 读出字节
+    data, err := db.Get(blockEncodedBlockKey(number, hash))
+    if err != nil {
+		log.Crit("Failed to read block encoded block", "err", err)
+		return nil
+    }
+    if len(data) == 0 {
+        return nil
+    }
+
+    return data
+}
+
+func WriteEncodedBlock(db ethdb.KeyValueWriter, hash common.Hash, number uint64, encodedBlock []byte) {
+	// Convert the receipts into their storage form and serialize them
+	bytes := encodedBlock
+	// Store the flattened receipt slice
+	if err := db.Put(blockEncodedBlockKey(number, hash), bytes); err != nil {
+		log.Crit("Failed to store block encoded block", "err", err)
+	}
+}
+
+func DeleteEncodedBlock(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
+	if err := db.Delete(blockEncodedBlockKey(number, hash)); err != nil {
+		log.Crit("Failed to delete block encoded block", "err", err)
 	}
 }
 

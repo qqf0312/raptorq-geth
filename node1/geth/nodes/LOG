@@ -1,0 +1,26 @@
+=============== Sep 16, 2025 (EDT) ===============
+02:20:33.495685 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+02:20:33.600428 db@open opening
+02:20:33.606451 version@stat F·[] S·0B[] Sc·[]
+02:20:33.610078 db@janitor F·2 G·0
+02:20:33.610191 db@open done T·8.981054ms
+=============== Sep 16, 2025 (EDT) ===============
+03:44:16.510812 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+03:44:16.512559 version@stat F·[] S·0B[] Sc·[]
+03:44:16.512742 db@open opening
+03:44:16.512934 journal@recovery F·1
+03:44:16.515250 journal@recovery recovering @1
+03:44:16.617627 memdb@flush created L0@2 N·2 S·181B "loc..seq,v2":"version,v1"
+03:44:16.657192 version@stat F·[1] S·181B[181B] Sc·[0.25]
+03:44:16.874496 db@janitor F·3 G·0
+03:44:16.875130 db@open done T·362.325624ms
+=============== Sep 16, 2025 (EDT) ===============
+09:15:43.921633 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+09:15:43.938327 version@stat F·[1] S·181B[181B] Sc·[0.25]
+09:15:43.938572 db@open opening
+09:15:43.938985 journal@recovery F·1
+09:15:43.979625 journal@recovery recovering @3
+09:15:44.031315 memdb@flush created L0@5 N·4 S·253B "loc..seq,v4":"n:\x1f..ong,v6"
+09:15:44.032538 version@stat F·[2] S·434B[434B] Sc·[0.50]
+09:15:44.095995 db@janitor F·4 G·0
+09:15:44.104672 db@open done T·165.83431ms

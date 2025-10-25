@@ -50,6 +50,7 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/trie/triedb/pathdb"
+	"github.com/xssnick/raptorq"
 	"golang.org/x/exp/slices"
 )
 
@@ -192,6 +193,140 @@ type txLookup struct {
 	transaction *types.Transaction
 }
 
+type BlockBatchData struct{
+	Block     *types.Block
+	Receipts  []*types.Receipt
+	Preimages map[common.Hash][]byte
+	ExternTd  *big.Int
+}
+
+func NewBlockBatchData(Block *types.Block, Receipts []*types.Receipt, Preimages map[common.Hash][]byte, ExternTd *big.Int) *BlockBatchData{
+	return &BlockBatchData{Block: Block, Receipts: Receipts, Preimages: Preimages, ExternTd: ExternTd}
+}
+
+type blockBatchDataRLP struct {
+    Block     *types.Block
+    Receipts  []*types.Receipt
+    Preimages [][2][]byte
+    ExternTd  *big.Int
+}
+
+func (b *BlockBatchData) toRLP() *blockBatchDataRLP {
+    var kvs [][2][]byte
+    for k, v := range b.Preimages {
+        kvs = append(kvs, [2][]byte{k.Bytes(), v})
+    }
+    return &blockBatchDataRLP{
+        Block:     b.Block,
+        Receipts:  b.Receipts,
+        Preimages: kvs,
+        ExternTd:  b.ExternTd,
+    }
+}
+
+func (r *blockBatchDataRLP) toOriginal() *BlockBatchData {
+    preimages := make(map[common.Hash][]byte, len(r.Preimages))
+    for _, kv := range r.Preimages {
+        var h common.Hash
+        h.SetBytes(kv[0])
+        preimages[h] = kv[1]
+    }
+    return &BlockBatchData{
+        Block:     r.Block,
+        Receipts:  r.Receipts,
+        Preimages: preimages,
+        ExternTd:  r.ExternTd,
+    }
+}
+
+func (b *BlockBatchData) ToBytes() ([]byte, error) {
+    return rlp.EncodeToBytes(b.toRLP())
+}
+
+func FromBytes(data []byte) (*BlockBatchData, error) {
+    var tmp blockBatchDataRLP
+    if err := rlp.DecodeBytes(data, &tmp); err != nil {
+        return nil, err
+    }
+    return tmp.toOriginal(), nil
+}
+
+type BlockBatchCache struct {//blockcache定义
+	size   int
+    buffer []*BlockBatchData
+}
+
+func NewBlockBatchCache(size int) *BlockBatchCache {
+    return &BlockBatchCache{size: size, buffer: make([]*BlockBatchData, 0, size)}
+}
+
+// 添加一个区块
+func (c *BlockBatchCache) Add(block *types.Block, receipts []*types.Receipt, Preimages map[common.Hash][]byte, externTd *big.Int) {
+    c.buffer = append(c.buffer, NewBlockBatchData(block, receipts, Preimages, externTd))
+}
+
+// 返回当前缓存区块数
+func (c *BlockBatchCache) BlockBatchNumber() int {
+    return len(c.buffer)
+}
+
+// 取出所有缓存并清空
+func (c *BlockBatchCache) PopAll() []*BlockBatchData {
+    blocks := c.buffer
+    c.buffer = make([]*BlockBatchData, 0, c.size)
+    return blocks
+}
+
+// 清空缓存
+func (c *BlockBatchCache) Clear() {
+    c.buffer = c.buffer[:0]
+}
+
+func (c *BlockBatchCache) GetBlocks() []*BlockBatchData{
+	return c.buffer
+}
+
+// 伪造编码函数（后面替换成真正的EC编码
+func (c *BlockBatchCache) EncodeBlock() [][]byte{
+    // TODO: 这里以后调用RS/RaptorQ
+	var encodedBlocks [][]byte
+	blocks := c.PopAll()
+	maxLen := 0
+	for _, b := range blocks{
+		data, err := b.ToBytes()
+		if err != nil{
+			log.Crit("Failed to ToBytes", "err", err)
+		}
+		encodedBlocks = append(encodedBlocks, data)
+		if len(data) > maxLen {
+			maxLen = len(data)
+		}
+	}
+
+	for i, block := range encodedBlocks {
+		if len(block) < maxLen {
+			padding := make([]byte, maxLen-len(block))
+			block = append(block, padding...)
+			encodedBlocks[i] = block
+		}
+	}
+	var data []byte
+	var raptorqBlocks [][]byte
+
+	for _, b := range encodedBlocks {
+		data = append(data, b...)
+	}
+	r := raptorq.NewRaptorQ(uint32(maxLen))
+	enc, err := r.CreateEncoder(data)
+    if err != nil {
+        log.Crit("Failed to create RaptorQ encoder", "err", err)
+    }
+	for i := uint32(0); i < 4; i++{
+		sx := enc.GenSymbol(i + 1000)
+		raptorqBlocks = append(raptorqBlocks, sx)
+	}
+    return raptorqBlocks
+}
 // BlockChain represents the canonical chain given a database with a genesis
 // block. The Blockchain manages chain imports, reverts, chain reorganisations.
 //
@@ -259,6 +394,8 @@ type BlockChain struct {
 	processor  Processor // Block transaction processor interface
 	forker     *ForkChoice
 	vmConfig   vm.Config
+
+	bbc        *BlockBatchCache//添加blockcache的定义
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -302,6 +439,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		futureBlocks:  lru.NewCache[common.Hash, *types.Block](maxFutureBlocks),
 		engine:        engine,
 		vmConfig:      vmConfig,
+		bbc:           NewBlockBatchCache(4),
 	}
 	bc.flushInterval.Store(int64(cacheConfig.TrieTimeLimit))
 	bc.forker = NewForkChoice(bc, shouldPreserve)
@@ -1363,6 +1501,34 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	rawdb.WritePreimages(blockBatch, state.Preimages())
 	if err := blockBatch.Write(); err != nil {
 		log.Crit("Failed to write block into disk", "err", err)
+	}
+
+	// 假设 bc.bbc.EncodeBlock() 返回 [][]byte，每个 symbol 对应一个 block
+	bc.bbc.Add(block, receipts, state.Preimages(), externTd)
+	log.Info("BlockBatchNumber", "blockBatchnumber", bc.bbc.BlockBatchNumber())
+
+	if bc.bbc.BlockBatchNumber() >= 4 {
+		// 取出缓存里的原始 blocks
+		unencodedBlocks := bc.bbc.GetBlocks()
+
+		// 生成 RaptorQ 编码 symbol
+		encodedSymbols := bc.bbc.EncodeBlock()
+		// 这里没有将原db里的block删除
+		// 清空缓存
+		bc.bbc.PopAll()
+
+		// 写入 DB，每个 block 对应一个 symbol
+		batch := bc.db.NewBatch()
+		for i, b := range unencodedBlocks {
+			symbol := encodedSymbols[i] // 注意一一对应
+			rawdb.WriteEncodedBlock(batch, b.Block.Hash(), b.Block.NumberU64(), symbol)
+		}
+
+		if err := batch.Write(); err != nil {
+			log.Crit("Failed to write encoded symbols batch into DB", "err", err)
+		}
+
+		log.Info("Successfully wrote encoded symbols", "count", len(encodedSymbols))
 	}
 	// Commit all cached state changes into underlying memory database.
 	root, err := state.Commit(block.NumberU64(), bc.chainConfig.IsEIP158(block.Number()))
