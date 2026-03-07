@@ -161,6 +161,34 @@ func DeleteStorageTrieNode(db ethdb.KeyValueWriter, accountHash common.Hash, pat
 	}
 }
 
+func HasColdTrieNode(db ethdb.KeyValueReader, prefix []byte, id uint64) bool {
+	has, err := db.Has(coldTrieNodeKey(prefix, id))
+	if err != nil {
+		return false
+	}
+	return has
+}
+
+func ReadColdTrieNode(db ethdb.KeyValueReader, prefix []byte, id uint64) []byte {
+	data, err := db.Get(coldTrieNodeKey(prefix, id))
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func WriteColdTrieNode(db ethdb.KeyValueWriter, prefix []byte, id uint64, node []byte) {
+	if err := db.Put(coldTrieNodeKey(prefix, id), node); err != nil {
+		log.Crit("Failed to store cold trie node", "err", err)
+	}
+}
+
+func DeleteColdTrieNode(db ethdb.KeyValueWriter, prefix []byte, id uint64) {
+	if err := db.Delete(coldTrieNodeKey(prefix, id)); err != nil {
+		log.Crit("Failed to delete cold trie node", "err", err)
+	}
+}
+
 // ReadLegacyTrieNode retrieves the legacy trie node with the given
 // associated node hash.
 func ReadLegacyTrieNode(db ethdb.KeyValueReader, hash common.Hash) []byte {

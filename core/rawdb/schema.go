@@ -138,6 +138,8 @@ var (
 	FixedCommitteeRootKey = []byte("fixedRoot-") // bigEndian64(syncPeriod) -> committee root hash
 	SyncCommitteeKey      = []byte("committee-") // bigEndian64(syncPeriod) -> serialized committee
 
+	coldChunkPrefix = []byte("coldrs-")
+
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
 )
@@ -268,6 +270,13 @@ func stateIDKey(root common.Hash) []byte {
 // accountTrieNodeKey = trieNodeAccountPrefix + nodePath.
 func accountTrieNodeKey(path []byte) []byte {
 	return append(trieNodeAccountPrefix, path...)
+}
+
+func coldTrieNodeKey(prefix []byte, id uint64) []byte {
+	key := append(coldChunkPrefix, prefix...)
+	key = append(key, make([]byte, 8)...)
+	binary.BigEndian.PutUint64(key[len(coldChunkPrefix)+len(prefix):], id)
+	return key
 }
 
 // storageTrieNodeKey = trieNodeStoragePrefix + accountHash + nodePath.
