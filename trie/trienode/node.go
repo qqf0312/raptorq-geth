@@ -85,8 +85,11 @@ func (set *NodeSet) ForEachWithOrder(callback func(path string, n *Node)) {
 	// Bottom-up, the longest path first
 	sort.Sort(sort.Reverse(sort.StringSlice(paths)))
 	for _, path := range paths {
+		
 		callback(path, set.Nodes[path])
+
 	}
+	
 }
 
 // AddNode adds the provided node into set.

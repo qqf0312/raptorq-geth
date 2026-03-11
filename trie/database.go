@@ -105,27 +105,27 @@ type StateMeta struct {
 // StateMetaIndex 冷热元数据索引（hash=节点在树上的Path哈希）
 type StateMetaIndex struct {
 	mu    sync.RWMutex
-	T     uint64 // 基础过期高度偏移量
-	F     uint64 // 访问次数系数
+	T     uint64                // 基础过期高度偏移量
+	F     uint64                // 访问次数系数
 	metas map[string]*StateMeta // Key=Path哈希，Value=节点元数据
-	db    *Database                  // 关联外层Database，仅调用公开接口
+	db    *Database             // 关联外层Database，仅调用公开接口
 }
 
 // NewStateMetaIndex 初始化冷热元数据索引
 func NewStateMetaIndex(db *Database) *StateMetaIndex {
 	return &StateMetaIndex{
 		metas: make(map[string]*StateMeta),
-		T:     100,
+		T:     10,
 		F:     10,
 		db:    db,
 	}
 }
 
-// Create 初始化节点元数据（path做键，直观）
+// Create 初始化节点元数据（string(keyBytes)做键，直观）
 // path: 节点在trie树上的路径（核心键）
 // height: 创建时的区块高度
 // nodeHash: 节点本身的哈希
-func (idx *StateMetaIndex) Create(path string, height uint64, nodeHash common.Hash) *StateMeta {
+func (idx *StateMetaIndex) Create(key string, height uint64, nodeHash common.Hash) *StateMeta {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -134,25 +134,25 @@ func (idx *StateMetaIndex) Create(path string, height uint64, nodeHash common.Ha
 		CreationHeight: height,
 		AccessTime:     0,
 	}
-	idx.metas[path] = meta // path直接做键
+	idx.metas[key] = meta //
 	return meta
 }
 
 // Get 获取节点元数据（通过path查询）
-func (idx *StateMetaIndex) Get(path string) (*StateMeta, bool) {
+func (idx *StateMetaIndex) Get(key string) (*StateMeta, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	meta, ok := idx.metas[path]
+	meta, ok := idx.metas[key]
 	return meta, ok
 }
 
 // OnAccess 记录节点访问（通过path更新）
-func (idx *StateMetaIndex) OnAccess(path string, nodeHash common.Hash, height uint64) {
+func (idx *StateMetaIndex) OnAccess(key string, nodeHash common.Hash, height uint64) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	meta, ok := idx.metas[path]
+	meta, ok := idx.metas[key]
 	if !ok {
 		// 访问未初始化的节点，自动创建元数据（nodeHash先置空，后续可补充）
 		meta = &StateMeta{
@@ -160,19 +160,19 @@ func (idx *StateMetaIndex) OnAccess(path string, nodeHash common.Hash, height ui
 			CreationHeight: height,
 			AccessTime:     0,
 		}
-		idx.metas[path] = meta
+		idx.metas[key] = meta
 	}
 	meta.AccessTime++
 }
 
 // UpdateTimer 更新节点过期时间（通过path）
-func (idx *StateMetaIndex) UpdateTimer(path string, height uint64) {
+func (idx *StateMetaIndex) UpdateTimer(key string, height uint64) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	meta, ok := idx.metas[path]
+	meta, ok := idx.metas[key]
 	if !ok {
-		panic("UpdateTimer called on non-existing meta: " + path)
+		panic("UpdateTimer called on non-existing meta: " + (key))
 	}
 	val1 := height + idx.T
 	val2 := meta.CreationHeight + (meta.AccessTime / idx.F)
@@ -183,20 +183,20 @@ func (idx *StateMetaIndex) UpdateTimer(path string, height uint64) {
 }
 
 // Delete 删除节点元数据（通过path）
-func (idx *StateMetaIndex) Delete(path string) {
+func (idx *StateMetaIndex) Delete(key string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-	delete(idx.metas, path)
+	delete(idx.metas, key)
 }
 
 // IsCold 判断节点是否为冷节点（通过path）
-func (idx *StateMetaIndex) IsCold(path string, height uint64) bool {
+func (idx *StateMetaIndex) IsCold(key string, height uint64) bool {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	meta, ok := idx.metas[path]
+	meta, ok := idx.metas[key]
 	if !ok {
-		panic("IsCold called on non-existing meta: " + path)
+		panic("IsCold called on non-existing meta: " + key)
 	}
 	return height >= meta.Timer
 }
@@ -209,9 +209,9 @@ func (idx *StateMetaIndex) CollectCold(height uint64) map[string]common.Hash {
 
 	// 核心修改：用map替代两个数组，path做键，nodeHash做值
 	coldMap := make(map[string]common.Hash)
-	for path, meta := range idx.metas {
+	for key, meta := range idx.metas {
 		if height >= meta.Timer { // 冷节点判定条件不变
-			coldMap[path] = meta.NodeHash
+			coldMap[key] = meta.NodeHash
 		}
 	}
 	return coldMap
@@ -235,19 +235,17 @@ func (idx *StateMetaIndex) CollectColdNodes(height uint64, root common.Hash) map
 
 	// 3. 遍历冷节点，读取数据并构建path→Node的map
 	coldNodesMap := make(map[string]*trienode.Node)
-	for path, hash := range coldMap {
+	for key, hash := range coldMap {
 		blob, err := reader.Node(common.Hash{}, nil, hash)
 		if err != nil || len(blob) == 0 {
-			log.Warn("Cold node not found", "path", path, "nodeHash", hash.Hex(), "err", err)
+			log.Warn("Cold node not found", "key", key, "nodeHash", hash.Hex(), "err", err)
 			continue // 读取失败则跳过该节点，不加入结果map
 		}
 		// 构建trienode.Node并加入map，path为键
-		coldNodesMap[path] = trienode.New(hash, blob)
+		coldNodesMap[key] = trienode.New(hash, blob)
 	}
 	return coldNodesMap
 }
-
-
 
 // BuildColdTrie 基于冷节点映射构建原生Trie实例（仅用公开接口，不修改trie核心）
 // height: 当前区块高度
@@ -256,31 +254,31 @@ func (db *Database) BuildColdTrie(height uint64, root common.Hash) (*Trie, commo
 	// 1. 收集冷节点映射
 	coldNodes := db.meta.CollectColdNodes(height, root)
 	if len(coldNodes) == 0 {
-		return nil, common.Hash{}, errors.New("no cold nodes to build trie")
+		return nil, common.Hash{}, nil
 	}
 
 	// 2. 创建空Trie
 	coldTrie := NewEmpty(db)
 
 	// 3. 遍历冷节点，通过原生Update方法插入（核心复用逻辑）
-	for path, node := range coldNodes {
+	for key, node := range coldNodes {
 		// 3.1 路径转换：trie path → 原生Trie的key格式（hex→keybytes）
-		key := db.pathToKeybytes(path)
-		if len(key) == 0 {
-			log.Warn("invalid cold node path", "path", path)
+		keyBytes := []byte(key)
+		if len(keyBytes) == 0 {
+			log.Warn("invalid cold node path", "keyBytes", keyBytes)
 			continue
 		}
 
 		// 3.2 解析叶子节点value（从blob中提取）
 		value, err := db.extractLeafValue(node.Blob)
 		if err != nil {
-			log.Warn("extract cold node value failed", "path", path, "err", err)
+			log.Warn("extract cold node value failed", "key", keyBytes, "err", err)
 			continue
 		}
 
 		// 3.3 复用原生Trie.Update插入节点（核心：仅调用公开接口）
-		if err := coldTrie.Update(key, value); err != nil {
-			log.Warn("insert cold node to trie failed", "path", path, "err", err)
+		if err := coldTrie.Update(keyBytes, value); err != nil {
+			log.Warn("insert cold node to trie failed", "key", keyBytes, "err", err)
 			continue
 		}
 	}
@@ -290,9 +288,9 @@ func (db *Database) BuildColdTrie(height uint64, root common.Hash) (*Trie, commo
 
 // SubTrieChunk 封装子树信息
 type SubTrieChunk struct {
-	RootPre []byte             // 子树前缀
-	Nodes map[common.Hash][]byte // 子树下所有节点的哈希和对应的 RLP
-	Proof map[string][][]byte    // leafKey -> root->leafKey 的 Merkle proof
+	RootPre []byte                 // 子树前缀
+	Nodes   map[common.Hash][]byte // 子树下所有节点的哈希和对应的 RLP
+	Proof   map[string][][]byte    // leafKey -> root->leafKey 的 Merkle proof
 }
 
 // SplitTrie 将大 Trie 按 k 个子树分块，返回每个子树的数据块
@@ -407,53 +405,53 @@ func (db *Database) CollectPrefixesBFS(reader Reader, root common.Hash, k int) (
 // tr: 原始Trie实例
 // subPrefix: 子树前缀（nibble路径，来自CollectPrefixesBFS）
 func (db *Database) CollectSubTrieWithPrefix(tr *Trie, subPrefix []byte) (*SubTrieChunk, error) {
-    if tr == nil || len(subPrefix) == 0 {
-        return nil, errors.New("invalid trie or subPrefix")
-    }
+	if tr == nil || len(subPrefix) == 0 {
+		return nil, errors.New("invalid trie or subPrefix")
+	}
 
-    // 1. 创建节点迭代器，并seek到subPrefix对应的子树
-    nodeIt, err := tr.NodeIterator(subPrefix)
-    if err != nil {
-        return nil, err
-    }
+	// 1. 创建节点迭代器，并seek到subPrefix对应的子树
+	nodeIt, err := tr.NodeIterator(subPrefix)
+	if err != nil {
+		return nil, err
+	}
 
-    // 2. 初始化返回结果
-    chunk := &SubTrieChunk{
+	// 2. 初始化返回结果
+	chunk := &SubTrieChunk{
 		RootPre: subPrefix,
-        Nodes: make(map[common.Hash][]byte), // 子树所有节点（hash→RLP）
-        Proof: make(map[string][][]byte),    // 叶子节点proof（leafKey→proof）
-    }
+		Nodes:   make(map[common.Hash][]byte), // 子树所有节点（hash→RLP）
+		Proof:   make(map[string][][]byte),    // 叶子节点proof（leafKey→proof）
+	}
 
-    // 3. 遍历子树所有节点（仅遍历subPrefix子树内的节点）
-    for nodeIt.Next(true) {
-        // 3.1 检查当前节点路径是否以subPrefix为前缀（防止越界）
-        currentPath := nodeIt.Path()
-        if !bytes.HasPrefix(currentPath, subPrefix) {
-            break // 超出子树范围，终止遍历
-        }
+	// 3. 遍历子树所有节点（仅遍历subPrefix子树内的节点）
+	for nodeIt.Next(true) {
+		// 3.1 检查当前节点路径是否以subPrefix为前缀（防止越界）
+		currentPath := nodeIt.Path()
+		if !bytes.HasPrefix(currentPath, subPrefix) {
+			break // 超出子树范围，终止遍历
+		}
 
-        // 3.2 收集节点（仅收集有独立哈希的节点）
-        nodeHash := nodeIt.Hash()
+		// 3.2 收集节点（仅收集有独立哈希的节点）
+		nodeHash := nodeIt.Hash()
 		if nodeHash != (common.Hash{}) { // 跳过内嵌节点（无独立哈希）
-            nodeBlob := nodeIt.NodeBlob()
-            if len(nodeBlob) > 0 {
-                chunk.Nodes[nodeHash] = nodeBlob
-            }
-        }
+			nodeBlob := nodeIt.NodeBlob()
+			if len(nodeBlob) > 0 {
+				chunk.Nodes[nodeHash] = nodeBlob
+			}
+		}
 
-        // 3.3 收集叶子节点的Merkle证明
-        if nodeIt.Leaf() {
-            leafKey := hexToKeybytes(nodeIt.LeafKey()) // 转换为原始key
-            chunk.Proof[string(leafKey)] = nodeIt.LeafProof()
-        }
-    }
+		// 3.3 收集叶子节点的Merkle证明
+		if nodeIt.Leaf() {
+			leafKey := hexToKeybytes(nodeIt.LeafKey()) // 转换为原始key
+			chunk.Proof[string(leafKey)] = nodeIt.LeafProof()
+		}
+	}
 
-    // 4. 检查迭代器错误
-    if err := nodeIt.Error(); err != nil && err != errIteratorEnd {
-        return nil, err
-    }
+	// 4. 检查迭代器错误
+	if err := nodeIt.Error(); err != nil && err != errIteratorEnd {
+		return nil, err
+	}
 
-    return chunk, nil
+	return chunk, nil
 }
 
 func EncodeSubTrieChunk(chunks []*SubTrieChunk) ([][]byte, error) {
@@ -463,7 +461,7 @@ func EncodeSubTrieChunk(chunks []*SubTrieChunk) ([][]byte, error) {
 		return nil, err
 	}
 	var (
-		serializedChunks = make([][]byte, len(chunks))
+		serializedChunks        = make([][]byte, len(chunks))
 		maxLen           uint64 = 0 // 最长序列化长度
 	)
 	for i, chunk := range chunks {
@@ -564,19 +562,19 @@ func (db *Database) Reader(blockRoot common.Hash) (Reader, error) {
 // path: 账户树叶子节点path
 // h: 当前区块高度
 // nodeHash: 节点哈希
-func (db *Database) AccessAddr(path string, h uint64, nodeHash common.Hash) {
+func (db *Database) AccessAddr(key string, h uint64, nodeHash common.Hash) {
 	// 1. 初始化元数据（仅新增节点）
-	if _, exists := db.meta.Get(path); !exists {
-		db.meta.Create(path, h, nodeHash)
+	if _, exists := db.meta.Get(key); !exists {
+		db.meta.Create(key, h, nodeHash)
 	}
 	// 2. 更新访问次数
-	db.meta.OnAccess(path, nodeHash, h)
+	db.meta.OnAccess(key, nodeHash, h)
 	// 3. 计算冷节点阈值
-	db.meta.UpdateTimer(path, h)
+	db.meta.UpdateTimer(key, h)
 
 	// 日志仅保留核心信息，避免冗余
-	meta, _ := db.meta.Get(path)
-	log.Info("节点元数据更新完成", "path", path, "block", h, "accessTime", meta.AccessTime, "coldThreshold", meta.Timer)
+	meta, _ := db.meta.Get(key)
+	log.Info("节点元数据更新完成", "keyBytes", common.Bytes2Hex([]byte(key)), "block", h, "accessTime", meta.AccessTime, "coldThreshold", meta.Timer)
 }
 
 // IsLeafNode 基于原生decodeNode精准判断是否为叶子节点
@@ -598,25 +596,6 @@ func IsLeafNode(blob []byte) bool {
 	// 3. 最终校验：shortNode的Val必须是valueNode（而非hashNode等）
 	_, isValueNode := shortNode.Val.(valueNode)
 	return isValueNode
-}
-
-// pathToKeybytes 将trie path字符串转换为原生Trie的keybytes格式
-// 适配以太坊MPT的key编码规则（hex→bytes）
-func (db *Database) pathToKeybytes(path string) []byte {
-    nibbles := make([]byte, len(path))
-    for i := 0; i < len(path); i++ {
-        switch {
-        case path[i] >= '0' && path[i] <= '9':
-            nibbles[i] = path[i] - '0'
-        case path[i] >= 'a' && path[i] <= 'f':
-            nibbles[i] = path[i] - 'a' + 10
-        case path[i] >= 'A' && path[i] <= 'F':
-            nibbles[i] = path[i] - 'A' + 10
-        default:
-            return nil
-        }
-    }
-    return hexToKeybytes(nibbles)
 }
 
 // extractLeafValue 基于原生decodeNode解析叶子节点value（官方标准方式）
@@ -671,26 +650,49 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 
 	// 3. 遍历账户树节点，仅处理叶子节点的元数据
 	accountSubset.ForEachWithOrder(func(path string, n *trienode.Node) {
-		// 跳过已删除节点，清理对应元数据
-		if n.IsDeleted() {
-			db.meta.Delete(path)
-			log.Trace("清理删除节点元数据", "path", path)
-			return
-		}
+
 		// 仅处理叶子节点
 		if !IsLeafNode(n.Blob) {
 			log.Trace("跳过非叶子节点", "path", path)
 			return
 		}
+		decodedNode, err := decodeNode(nil, n.Blob)
+		if err != nil {
+			log.Warn("failed to decode node", "path", path, "err", err)
+			return
+		}
+
+		sn, ok := decodedNode.(*shortNode)
+		if !ok {
+			log.Warn("decoded node is not shortNode", "path", path)
+			return
+		}
+
+		leafKeyNibbles := sn.Key
+		// 5. 转成原生 key bytes
+		leafKeyBytes := hexToKeybytes(leafKeyNibbles)
+
+		key := string(leafKeyBytes) // 以原生 key bytes 作为元数据的键，更直观
+		// 跳过已删除节点，清理对应元数据
+		if n.IsDeleted() {
+			db.meta.Delete(key)
+			log.Trace("清理删除节点元数据", "key", key)
+			return
+		}
+
 		// 核心：更新节点元数据（无迁移，仅统计）
-		db.AccessAddr(path, block, n.Hash)
+		db.AccessAddr(key, block, n.Hash)
 	})
 
 	tr, coldTrRoot, err := db.BuildColdTrie(block, root)
 	if err != nil {
 		return err
 	}
-	chunks, err := db.SplitTrie(tr, coldTrRoot, 4)
+	if tr == nil {
+		log.Warn("构建冷节点Trie失败，跳过分块写入", "block", block, "root", root.Hex())
+		return nil // 构建失败则跳过分块写入，但不影响正常更新流程
+	}
+	chunks, err := db.SplitTrie(tr, coldTrRoot, 2)
 	if err != nil {
 		return err
 	}
