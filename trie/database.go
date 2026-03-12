@@ -115,7 +115,7 @@ type StateMetaIndex struct {
 func NewStateMetaIndex(db *Database) *StateMetaIndex {
 	return &StateMetaIndex{
 		metas: make(map[string]*StateMeta),
-		T:     10,
+		T:     2,
 		F:     10,
 		db:    db,
 	}
@@ -210,6 +210,7 @@ func (idx *StateMetaIndex) CollectCold(height uint64) map[string]common.Hash {
 	// 核心修改：用map替代两个数组，path做键，nodeHash做值
 	coldMap := make(map[string]common.Hash)
 	for key, meta := range idx.metas {
+		log.Info("coldMap", "key", key, "height", height, "Timer", meta.Timer)
 		if height >= meta.Timer { // 冷节点判定条件不变
 			coldMap[key] = meta.NodeHash
 		}
@@ -244,6 +245,7 @@ func (idx *StateMetaIndex) CollectColdNodes(height uint64, root common.Hash) map
 		// 构建trienode.Node并加入map，path为键
 		coldNodesMap[key] = trienode.New(hash, blob)
 	}
+	log.Info("The number of cold nodes", "num", len(coldNodesMap))
 	return coldNodesMap
 }
 
@@ -254,6 +256,7 @@ func (db *Database) BuildColdTrie(height uint64, root common.Hash) (*Trie, commo
 	// 1. 收集冷节点映射
 	coldNodes := db.meta.CollectColdNodes(height, root)
 	if len(coldNodes) == 0 {
+		log.Warn("cold node 0")
 		return nil, common.Hash{}, nil
 	}
 
@@ -293,6 +296,25 @@ type SubTrieChunk struct {
 	Proof   map[string][][]byte    // leafKey -> root->leafKey 的 Merkle proof
 }
 
+// NodeEntry 存储节点的哈希和对应的 RLP 数据
+type rlpNodeEntry struct {
+	Hash common.Hash
+	Blob []byte
+}
+
+// ProofEntry 存储叶子路径和对应的默克尔证明
+type rlpProofEntry struct {
+	Key   []byte // 改为 []byte，RLP 处理更原生
+	Proof [][]byte
+}
+
+// SubTrieChunk 现在的结构体可以被 RLP 完美序列化
+type rlpSubTrieChunk struct {
+	RootPre []byte
+	Nodes   []rlpNodeEntry
+	Proof   []rlpProofEntry
+}
+
 // SplitTrie 将大 Trie 按 k 个子树分块，返回每个子树的数据块
 func (db *Database) SplitTrie(coldTrie *Trie, root common.Hash, k int) ([]*SubTrieChunk, error) {
 	if k <= 0 {
@@ -300,13 +322,13 @@ func (db *Database) SplitTrie(coldTrie *Trie, root common.Hash, k int) ([]*SubTr
 	}
 
 	// 创建数据库读取器
-	reader, err := db.Reader(root)
-	if err != nil {
-		return nil, err
-	}
+	// reader, err := db.Reader(root)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	// BFS 扩展子根
-	subPrefixes, err := db.CollectPrefixesBFS(reader, root, k)
+	subPrefixes, err := db.CollectPrefixesBFS(coldTrie, k)
 	if err != nil {
 		return nil, err
 	}
@@ -320,86 +342,64 @@ func (db *Database) SplitTrie(coldTrie *Trie, root common.Hash, k int) ([]*SubTr
 		}
 		chunks = append(chunks, chunk)
 	}
-
+	log.Info("The number of chunk", "num", len(chunks))
 	return chunks, nil
 }
 
 // CollectPrefixesBFS 从 root 节点开始 BFS 收集子树前缀
 // 返回最多 k 个前缀
-func (db *Database) CollectPrefixesBFS(reader Reader, root common.Hash, k int) ([][]byte, error) {
+func (db *Database) CollectPrefixesBFS(tr *Trie, k int) ([][]byte, error) {
 	if k <= 0 {
 		return nil, errors.New("invalid k")
 	}
 
 	type queueItem struct {
-		prefix []byte      // 当前节点前缀
-		hash   common.Hash // 当前节点 hash
+		prefix []byte
+		node   node
 	}
 
-	prefixes := [][]byte{}
-	queue := []queueItem{{prefix: []byte{}, hash: root}}
+	var prefixes [][]byte
+	queue := []queueItem{{prefix: []byte{}, node: tr.root}}
 
-	for len(prefixes) < k && len(queue) > 0 {
+	// 只要队列不空，且我们还没凑够 k 个分块
+	for len(queue) > 0 {
+		// 如果当前队列里的节点数已经足够（或者已经是我们要的 k 个）
+		if len(queue) >= k {
+			break 
+		}
+
 		item := queue[0]
 		queue = queue[1:]
 
-		// 收集当前节点前缀
-		prefixes = append(prefixes, item.prefix)
-		if len(prefixes) >= k {
-			break
-		}
-
-		// 读取节点
-		blob, err := reader.Node(common.Hash{}, nil, item.hash)
-		if err != nil {
-			return nil, err
-		}
-		if len(blob) == 0 {
-			continue
-		}
-
-		n, err := decodeNode(nil, blob)
-		if err != nil {
-			return nil, err
-		}
-
-		switch node := n.(type) {
+		switch n := item.node.(type) {
 		case *fullNode:
 			for i := 0; i < 16; i++ {
-				child := node.Children[i]
-				if child == nil {
-					continue
+				if n.Children[i] != nil {
+					newPrefix := append(append([]byte{}, item.prefix...), byte(i))
+					queue = append(queue, queueItem{prefix: newPrefix, node: n.Children[i]})
 				}
-				childHash, ok := child.(hashNode)
-				if !ok {
-					continue
-				}
-				// 扩展前缀
-				newPrefix := append(item.prefix, byte(i))
-				queue = append(queue, queueItem{
-					prefix: newPrefix,
-					hash:   common.BytesToHash(childHash),
-				})
 			}
-
 		case *shortNode:
-			if node.Val == nil {
-				break
-			}
-			childHash, ok := node.Val.(hashNode)
-			if !ok {
-				break
-			}
-			newPrefix := append(item.prefix, node.Key...)
-			queue = append(queue, queueItem{
-				prefix: newPrefix,
-				hash:   common.BytesToHash(childHash),
-			})
+			newPrefix := append(append([]byte{}, item.prefix...), n.Key...)
+			queue = append(queue, queueItem{prefix: newPrefix, node: n.Val})
+
+		default:
+			// 【边界条件】
+			// 如果走到这里（比如是 valueNode），说明这个节点已经没有孩子了。
+			// 我们不能直接丢弃它，必须把它作为这一个分支的“最终前缀”存起来。
+			prefixes = append(prefixes, item.prefix)
+			// 注意：此时我们减少了队列长度，但增加了一个确定前缀
 		}
+	}
+
+	// 最后，把留在队列里的所有候选节点也加入 prefixes
+	for _, item := range queue {
+		prefixes = append(prefixes, item.prefix)
 	}
 
 	return prefixes, nil
 }
+
 
 // CollectSubTrieWithPrefix 基于迭代器收集指定前缀的子树（核心实现）
 // tr: 原始Trie实例
@@ -465,8 +465,29 @@ func EncodeSubTrieChunk(chunks []*SubTrieChunk) ([][]byte, error) {
 		maxLen           uint64 = 0 // 最长序列化长度
 	)
 	for i, chunk := range chunks {
-		// RLP序列化SubTrieChunk（以太坊标准序列化方式）
-		serialized, err := rlp.EncodeToBytes(chunk)
+		// --- 局部转换逻辑开始 ---
+		// 将你的 map 转换为有序的 slice（或者直接转换）
+		// 为了保证 RS 编码在不同机器上的一致性，建议对 Map 的 Key 进行排序
+		// 但如果你的 Map 是刚刚通过迭代器生成的，顺序通常是确定的
+		
+		rlpChunk := rlpSubTrieChunk{
+			RootPre: chunk.RootPre,
+			Nodes:   make([]rlpNodeEntry, 0, len(chunk.Nodes)),
+			Proof:   make([]rlpProofEntry, 0, len(chunk.Proof)),
+		}
+
+		// 转换 Nodes map
+		for h, b := range chunk.Nodes {
+			rlpChunk.Nodes = append(rlpChunk.Nodes, rlpNodeEntry{Hash: h, Blob: b})
+		}
+		// 转换 Proof map
+		for key, p := range chunk.Proof {
+			rlpChunk.Proof = append(rlpChunk.Proof, rlpProofEntry{Key: []byte(key), Proof: p})
+		}
+		// --- 局部转换逻辑结束 ---
+
+		// 使用适配后的结构体进行 RLP 编码
+		serialized, err := rlp.EncodeToBytes(rlpChunk)
 		if err != nil {
 			return nil, err
 		}
@@ -489,6 +510,10 @@ func EncodeSubTrieChunk(chunks []*SubTrieChunk) ([][]byte, error) {
 
 	// Reed-Solomon编码生成冗余数据（k个数据块生成k个冗余块）
 	output := make([][]byte, k+k)
+	for i := 0; i < k+k; i++ {
+		// 所有的分片（无论数据还是校验）都必须长度一致
+		output[i] = make([]byte, maxLen)
+	}
 	copy(output[:k], alignedChunks)
 	if err := enc.Encode(output); err != nil {
 		return nil, err
@@ -514,6 +539,8 @@ func WriteSubTrieChunkToDisk(db ethdb.Database, root common.Hash, chunks [][]byt
 		return err
 	}
 	batch.Reset()
+
+	log.Info("Success write subTrieChunkToDisk");
 	return nil
 }
 
@@ -667,8 +694,16 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 			log.Warn("decoded node is not shortNode", "path", path)
 			return
 		}
+		parentNibbles := []byte(path)
+		fullNibbles := append(parentNibbles, sn.Key...)
 
-		leafKeyNibbles := sn.Key
+		if len(fullNibbles) == 65 && fullNibbles[64] == 16 {
+			fullNibbles = fullNibbles[:64] // 去掉终止符
+		}
+		if(len(fullNibbles) % 2 != 0){
+			log.Warn("fullNibbles len not odd", "len", len(fullNibbles))
+		}
+		leafKeyNibbles := fullNibbles
 		// 5. 转成原生 key bytes
 		leafKeyBytes := hexToKeybytes(leafKeyNibbles)
 
@@ -704,6 +739,7 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 		return err
 	}
 	tr.Reset()
+
 	return nil
 }
 
