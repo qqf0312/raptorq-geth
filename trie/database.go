@@ -365,7 +365,7 @@ func (db *Database) CollectPrefixesBFS(tr *Trie, k int) ([][]byte, error) {
 	for len(queue) > 0 {
 		// 如果当前队列里的节点数已经足够（或者已经是我们要的 k 个）
 		if len(queue) >= k {
-			break 
+			break
 		}
 
 		item := queue[0]
@@ -399,7 +399,6 @@ func (db *Database) CollectPrefixesBFS(tr *Trie, k int) ([][]byte, error) {
 
 	return prefixes, nil
 }
-
 
 // CollectSubTrieWithPrefix 基于迭代器收集指定前缀的子树（核心实现）
 // tr: 原始Trie实例
@@ -469,7 +468,7 @@ func EncodeSubTrieChunk(chunks []*SubTrieChunk) ([][]byte, error) {
 		// 将你的 map 转换为有序的 slice（或者直接转换）
 		// 为了保证 RS 编码在不同机器上的一致性，建议对 Map 的 Key 进行排序
 		// 但如果你的 Map 是刚刚通过迭代器生成的，顺序通常是确定的
-		
+
 		rlpChunk := rlpSubTrieChunk{
 			RootPre: chunk.RootPre,
 			Nodes:   make([]rlpNodeEntry, 0, len(chunk.Nodes)),
@@ -540,7 +539,7 @@ func WriteSubTrieChunkToDisk(db ethdb.Database, root common.Hash, chunks [][]byt
 	}
 	batch.Reset()
 
-	log.Info("Success write subTrieChunkToDisk");
+	log.Info("Success write subTrieChunkToDisk")
 	return nil
 }
 
@@ -700,7 +699,7 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 		if len(fullNibbles) == 65 && fullNibbles[64] == 16 {
 			fullNibbles = fullNibbles[:64] // 去掉终止符
 		}
-		if(len(fullNibbles) % 2 != 0){
+		if len(fullNibbles)%2 != 0 {
 			log.Warn("fullNibbles len not odd", "len", len(fullNibbles))
 		}
 		leafKeyNibbles := fullNibbles

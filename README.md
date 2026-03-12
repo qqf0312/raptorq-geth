@@ -109,7 +109,119 @@ Split --> Iterator
 - 新增数据库前缀：`coldChunkPrefix`；
 - 实现冷数据操作接口：`WriteSubTrieChunkToDisk`、`ReadSubTrieChunk`、`DeleteSubTrieChunk`。
 
-## 五、实现状态与未来工作
+
+
+
+
+## 五、运行与测试说明
+
+### 1. 编译代码
+```bash
+make all
+```
+
+### 2. 在终端进入data文件夹，用创世区块在四个节点上新起一条链
+
+```bash
+ geth init --datadir node1 genesis.json 
+ geth init --datadir node2 genesis.json 
+ geth init --datadir node3 genesis.json 
+ geth init --datadir node4 genesis.json 
+```
+其中node1和node3是能发起交易的矿工节点，四个节点的地址按顺序如下。
+- 0x92424e4f86201c931ba53eb48619d93244c18e13 
+- 0x06a1fcbe7a821825b9553d6a7cef1dc470eb2e15
+- 0x81374b61e2a1a87fccd88223bd92b52791142634
+- 0x1297d56040f2e548ab9d7c1deba623980410cb6c
+
+### 3. 在data目录下，分别在五个终端上运行bootnode和其他四个节点
+- bootnode:
+```bash
+bootnode -nodekey boot.key -addr :30305
+```
+
+- node1:
+```bash
+geth --datadir node1 \
+--port 30306 \
+--bootnodes enode://efbf2f1ec96876790cd805502b2d8bb03a61f5fcc61b2692e6736d5a70202e8eda7eb16b8b448244363d92c31a5c322988d2ae628f9cf9329dc02bf27039850f@127.0.0.1:0?discport=30305 \
+--networkid 123454321 \
+--unlock 0x92424e4f86201c931ba53eb48619d93244c18e13 \
+--password node1/password.txt \
+--authrpc.port 8551 \
+--mine \
+--miner.etherbase 0x92424e4f86201c931ba53eb48619d93244c18e13 \
+--miner.gasprice 0
+```
+
+- node2:
+```bash
+geth --datadir node2 \
+--port 30307 \
+--bootnodes enode://efbf2f1ec96876790cd805502b2d8bb03a61f5fcc61b2692e6736d5a70202e8eda7eb16b8b448244363d92c31a5c322988d2ae628f9cf9329dc02bf27039850f@127.0.0.1:0?discport=30305 \
+--networkid 123454321 \
+--unlock 0x06a1fcbe7a821825b9553d6a7cef1dc470eb2e15 \
+--password node2/password.txt \
+--authrpc.port 8552 
+```
+
+- node3:
+```bash
+geth --datadir node3 \
+--port 30308 \
+--bootnodes enode://efbf2f1ec96876790cd805502b2d8bb03a61f5fcc61b2692e6736d5a70202e8eda7eb16b8b448244363d92c31a5c322988d2ae628f9cf9329dc02bf27039850f@127.0.0.1:0?discport=30305 \
+--networkid 123454321 \
+--unlock 0x81374b61e2a1a87fccd88223bd92b52791142634 \
+--password node3/password.txt \
+--authrpc.port 8553 \
+--mine \
+--miner.etherbase 0x81374b61e2a1a87fccd88223bd92b52791142634 \
+--miner.gasprice 0
+```
+- node4:
+```bash 
+geth --datadir node4 \
+--port 30309 \
+--bootnodes enode://efbf2f1ec96876790cd805502b2d8bb03a61f5fcc61b2692e6736d5a70202e8eda7eb16b8b448244363d92c31a5c322988d2ae628f9cf9329dc02bf27039850f@127.0.0.1:0?discport=30305 \
+--networkid 123454321 \
+--unlock 0x1297d56040f2e548ab9d7c1deba623980410cb6c \
+--password node4/password.txt \
+--authrpc.port 8554 
+``` 
+
+
+### 4.通过发起交易触发冷树的构建
+
+由于我们节点元数据的更新和冷树的构建都需要tiredb里的update触发，所以必须发起交易才能触发相关逻辑，为了便于观察，我们设置的由热节点转化为冷节点的高度限制是2，出块的周期间隔是30s，所以我们这么做。
+
+- 再起两个终端，分别运行node1和node3的控制台，用于发起交易。
+```bash
+geth attach ipc:node1/geth.ipc
+```
+
+```bash
+geth attach ipc:node3/geth.ipc
+```
+
+- 用node1向node2发起交易，node3向node4发起交易。
+```bash
+eth.sendTransaction({from: eth.accounts[0], to: "0x06a1fcbe7a821825b9553d6a7cef1dc470eb2e15", value: 100, gasPrice:0})
+```
+
+```bash
+eth.sendTransaction({from: eth.accounts[0], to: "0x1297d56040f2e548ab9d7c1deba623980410cb6c", value: 100, gasPrice:0})
+```
+
+
+- 等待两到三分钟后，让链多出几个块，再用node1向node2发起交易。
+```bash
+eth.sendTransaction({from: eth.accounts[0], to: "0x06a1fcbe7a821825b9553d6a7cef1dc470eb2e15", value: 100, gasPrice:0})
+```
+
+
+- 此时应观察到node3和node4两个节点转化为冷节点并被编码存储到磁盘上。
+
+## 六、实现状态与未来工作
 ### 1. 当前实现状态（Prototype）
 | 模块                | 状态 | 模块                | 状态 |
 |---------------------|------|---------------------|------|
