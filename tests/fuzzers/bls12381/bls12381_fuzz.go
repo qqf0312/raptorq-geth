@@ -25,10 +25,10 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"reflect"
 
 	"github.com/consensys/gnark-crypto/ecc"
 	gnark "github.com/consensys/gnark-crypto/ecc/bls12-381"
-	"github.com/consensys/gnark-crypto/ecc/bls12-381/fp"
 	"github.com/consensys/gnark-crypto/ecc/bls12-381/fr"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto/bls12381"
@@ -68,8 +68,8 @@ func fuzzCrossPairing(data []byte) int {
 
 	// compute pairing using blst
 	blstResult := blst.Fp12MillerLoop(blG2, blG1)
-	blstResult.FinalExp()
-	res := massageBLST(blstResult.ToBendian())
+	blstFp12FinalExp(blstResult)
+	res := massageBLST(blstFp12ToBendian(blstResult))
 	if !(bytes.Equal(res, bls12381.NewGT().ToBytes(kResult))) {
 		panic("pairing mismatch blst / geth")
 	}
@@ -132,7 +132,7 @@ func fuzzCrossG1Add(data []byte) int {
 	}
 
 	bl3 := blst.P1AffinesAdd([]*blst.P1Affine{bl1, bl2})
-	if !(bytes.Equal(cp.Marshal(), bl3.Serialize())) {
+	if !(bytes.Equal(cp.Marshal(), blstP1AffineSerialize(blstP1ToAffine(bl3)))) {
 		panic("G1 point addition mismatch blst / geth ")
 	}
 
@@ -170,7 +170,7 @@ func fuzzCrossG2Add(data []byte) int {
 	}
 
 	bl3 := blst.P2AffinesAdd([]*blst.P2Affine{bl1, bl2})
-	if !(bytes.Equal(cp.Marshal(), bl3.Serialize())) {
+	if !(bytes.Equal(cp.Marshal(), blstP2AffineSerialize(blstP2ToAffine(bl3)))) {
 		panic("G1 point addition mismatch blst / geth ")
 	}
 
@@ -230,7 +230,7 @@ func fuzzCrossG1MultiExp(data []byte) int {
 
 func getG1Points(input io.Reader) (*bls12381.PointG1, *gnark.G1Affine, *blst.P1Affine, error) {
 	// sample a random scalar
-	s, err := randomScalar(input, fp.Modulus())
+	s, err := randomScalar(input, fr.Modulus())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -252,9 +252,12 @@ func getG1Points(input io.Reader) (*bls12381.PointG1, *gnark.G1Affine, *blst.P1A
 	}
 
 	// marshal gnark point -> blst point
-	scalar := new(blst.Scalar).FromBEndian(common.LeftPadBytes(s.Bytes(), 32))
-	p1 := new(blst.P1Affine).From(scalar)
-	if !bytes.Equal(p1.Serialize(), cpBytes) {
+	scalar := blstScalarFromBEndian(common.LeftPadBytes(s.Bytes(), 32))
+	if scalar == nil || !blstScalarValid(scalar) {
+		return nil, nil, nil, fmt.Errorf("invalid blst scalar")
+	}
+	p1 := blstP1GeneratorMult(scalar)
+	if !bytes.Equal(blstP1AffineSerialize(p1), cpBytes) {
 		panic("bytes(blst.G1) != bytes(geth.G1)")
 	}
 
@@ -263,7 +266,7 @@ func getG1Points(input io.Reader) (*bls12381.PointG1, *gnark.G1Affine, *blst.P1A
 
 func getG2Points(input io.Reader) (*bls12381.PointG2, *gnark.G2Affine, *blst.P2Affine, error) {
 	// sample a random scalar
-	s, err := randomScalar(input, fp.Modulus())
+	s, err := randomScalar(input, fr.Modulus())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -286,9 +289,12 @@ func getG2Points(input io.Reader) (*bls12381.PointG2, *gnark.G2Affine, *blst.P2A
 
 	// marshal gnark point -> blst point
 	// Left pad the scalar to 32 bytes
-	scalar := new(blst.Scalar).FromBEndian(common.LeftPadBytes(s.Bytes(), 32))
-	p2 := new(blst.P2Affine).From(scalar)
-	if !bytes.Equal(p2.Serialize(), cpBytes) {
+	scalar := blstScalarFromBEndian(common.LeftPadBytes(s.Bytes(), 32))
+	if scalar == nil || !blstScalarValid(scalar) {
+		return nil, nil, nil, fmt.Errorf("invalid blst scalar")
+	}
+	p2 := blstP2GeneratorMult(scalar)
+	if !bytes.Equal(blstP2AffineSerialize(p2), cpBytes) {
 		panic("bytes(blst.G2) != bytes(geth.G2)")
 	}
 
@@ -302,4 +308,50 @@ func randomScalar(r io.Reader, max *big.Int) (k *big.Int, err error) {
 			return
 		}
 	}
+}
+
+func blstFp12FinalExp(pt *blst.Fp12) {
+	reflect.ValueOf(pt).MethodByName("FinalExp").Call(nil)
+}
+
+func blstFp12ToBendian(pt *blst.Fp12) []byte {
+	return reflect.ValueOf(pt).MethodByName("ToBendian").Call(nil)[0].Bytes()
+}
+
+func blstScalarFromBEndian(in []byte) *blst.Scalar {
+	out := reflect.ValueOf(new(blst.Scalar)).MethodByName("FromBEndian").Call([]reflect.Value{reflect.ValueOf(in)})[0]
+	if out.IsNil() {
+		return nil
+	}
+	return out.Interface().(*blst.Scalar)
+}
+
+func blstScalarValid(scalar *blst.Scalar) bool {
+	return reflect.ValueOf(scalar).MethodByName("Valid").Call(nil)[0].Bool()
+}
+
+func blstP1GeneratorMult(scalar *blst.Scalar) *blst.P1Affine {
+	p := reflect.ValueOf(blst.P1Generator()).MethodByName("Mult").Call([]reflect.Value{reflect.ValueOf(scalar)})[0].Interface().(*blst.P1)
+	return blstP1ToAffine(p)
+}
+
+func blstP2GeneratorMult(scalar *blst.Scalar) *blst.P2Affine {
+	p := reflect.ValueOf(blst.P2Generator()).MethodByName("Mult").Call([]reflect.Value{reflect.ValueOf(scalar)})[0].Interface().(*blst.P2)
+	return blstP2ToAffine(p)
+}
+
+func blstP1ToAffine(p *blst.P1) *blst.P1Affine {
+	return reflect.ValueOf(p).MethodByName("ToAffine").Call(nil)[0].Interface().(*blst.P1Affine)
+}
+
+func blstP2ToAffine(p *blst.P2) *blst.P2Affine {
+	return reflect.ValueOf(p).MethodByName("ToAffine").Call(nil)[0].Interface().(*blst.P2Affine)
+}
+
+func blstP1AffineSerialize(p *blst.P1Affine) []byte {
+	return reflect.ValueOf(p).MethodByName("Serialize").Call(nil)[0].Bytes()
+}
+
+func blstP2AffineSerialize(p *blst.P2Affine) []byte {
+	return reflect.ValueOf(p).MethodByName("Serialize").Call(nil)[0].Bytes()
 }
