@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/big"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
@@ -269,24 +268,6 @@ func cloneStatement(statement Statement) Statement {
 
 func pointEqual(a, b bn254.G1Affine) bool {
 	return a.Equal(&b)
-}
-
-func pointAdd(points ...bn254.G1Affine) bn254.G1Affine {
-	var acc bn254.G1Jac
-	for i := range points {
-		acc.AddMixed(&points[i])
-	}
-	var out bn254.G1Affine
-	out.FromJacobian(&acc)
-	return out
-}
-
-func pointScalarMul(p bn254.G1Affine, s fr.Element) bn254.G1Affine {
-	var scalar big.Int
-	s.BigInt(&scalar)
-	var out bn254.G1Affine
-	out.ScalarMultiplication(&p, &scalar)
-	return out
 }
 
 func isPowerOfTwo(n int) bool {

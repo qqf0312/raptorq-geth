@@ -301,14 +301,6 @@ func smallFiles() [][]byte {
 	}
 }
 
-func cloneBytes2D(in [][]byte) [][]byte {
-	out := make([][]byte, len(in))
-	for i := range in {
-		out[i] = append([]byte(nil), in[i]...)
-	}
-	return out
-}
-
 func deterministicBytes(n int) []byte {
 	return deterministicBytesWithOffset(n, 0)
 }

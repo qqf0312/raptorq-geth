@@ -138,14 +138,6 @@ func isPowerOfTwo(n int) bool {
 	return n > 0 && n&(n-1) == 0
 }
 
-func cloneStatements(in []folding.Statement) []folding.Statement {
-	out := make([]folding.Statement, len(in))
-	for i := range in {
-		out[i] = cloneStatement(in[i])
-	}
-	return out
-}
-
 func statementsToRows(in []folding.Statement) []FileIPARow {
 	out := make([]FileIPARow, len(in))
 	for i := range in {
@@ -180,38 +172,6 @@ func stripFoldProof(proof *folding.FoldProof) *FileFoldProof {
 		return nil
 	}
 	return &FileFoldProof{Challenges: cloneScalarMatrix(proof.Challenges)}
-}
-
-func cloneStatement(in folding.Statement) folding.Statement {
-	return folding.Statement{
-		A: cloneScalars(in.A),
-		Q: in.Q,
-		C: in.C,
-	}
-}
-
-func statementEqual(a, b folding.Statement) bool {
-	if len(a.A) != len(b.A) {
-		return false
-	}
-	for i := range a.A {
-		if !a.A[i].Equal(&b.A[i]) {
-			return false
-		}
-	}
-	return a.Q.Equal(&b.Q) && a.C.Equal(&b.C)
-}
-
-func statementSlicesEqual(a, b []folding.Statement) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if !statementEqual(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
 }
 
 func challengeLayersEqual(a, b [][]fr.Element) bool {

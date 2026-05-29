@@ -1,6 +1,7 @@
 package folding
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/consensys/gnark-crypto/ecc/bn254"
@@ -153,5 +154,10 @@ func fe(v uint64) fr.Element {
 
 func testPoint(v uint64) bn254.G1Affine {
 	_, _, gen, _ := bn254.Generators()
-	return pointScalarMul(gen, fe(v))
+	scalarElement := fe(v)
+	var scalar big.Int
+	scalarElement.BigInt(&scalar)
+	var out bn254.G1Affine
+	out.ScalarMultiplication(&gen, &scalar)
+	return out
 }
