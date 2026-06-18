@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/trie/trienode"
 )
 
 type NodeHash = common.Hash
@@ -16,6 +17,14 @@ type NodeHash = common.Hash
 type MPTStatePathRoot interface {
 	RootHashString() string
 	ExtractStatePaths() ([]StatePath, error)
+}
+
+// MPTUpdatedNodeSetRoot is an optional extension for roots backed by a native
+// go-ethereum trie commit. When available, the partition manager uses the
+// commit NodeSet as the source of updated raw MPT node hashes and verifies it
+// matches the StatePath-derived result.
+type MPTUpdatedNodeSetRoot interface {
+	UpdatedNodeSet() *trienode.NodeSet
 }
 
 type MPTPartitionManager struct {
@@ -103,6 +112,9 @@ func (m *MPTPartitionManager) AddLatestRoot(latestRoot MPTStatePathRoot) (*MPTPa
 	previousRootHash := m.CurrentRootHash
 	previousPaths := cloneStatePaths(m.CurrentPaths)
 	diff := DiffStatePaths(previousPaths, latestPaths)
+	if err := applyNativeUpdatedNodeSet(latestRoot, &diff); err != nil {
+		return nil, err
+	}
 
 	partitions, err := BuildPartitions(diff.Changed, m.PartitionCount, sortBy)
 	if err != nil {
@@ -196,6 +208,36 @@ func BuildLatestReachableNodeHashSet(paths []StatePath) map[NodeHash]bool {
 		addPathNodeHashes(out, paths[i])
 	}
 	return out
+}
+
+func UpdatedNodeHashesFromNodeSet(nodes *trienode.NodeSet) map[NodeHash]bool {
+	if nodes == nil {
+		return nil
+	}
+	out := make(map[NodeHash]bool)
+	for _, node := range nodes.Nodes {
+		if node == nil || node.IsDeleted() || node.Hash == (common.Hash{}) {
+			continue
+		}
+		out[node.Hash] = true
+	}
+	return out
+}
+
+func applyNativeUpdatedNodeSet(root MPTStatePathRoot, diff *StatePathDiff) error {
+	provider, ok := root.(MPTUpdatedNodeSetRoot)
+	if !ok {
+		return nil
+	}
+	native := UpdatedNodeHashesFromNodeSet(provider.UpdatedNodeSet())
+	if native == nil {
+		return nil
+	}
+	if !nodeHashSetsEqual(native, diff.AddedNodeHashes) {
+		return fmt.Errorf("native NodeSet updated hashes differ from StatePath diff: native=%d statepath=%d", len(native), len(diff.AddedNodeHashes))
+	}
+	diff.AddedNodeHashes = native
+	return nil
 }
 
 func BuildRawNodeSets(partitions []Partition, plans []SuperNodeReallocationPlan, latestReachable map[NodeHash]bool, preserveLatest bool) []map[string]bool {
@@ -404,4 +446,16 @@ func cloneNodeHashSet(values map[NodeHash]bool) map[NodeHash]bool {
 		out[key] = value
 	}
 	return out
+}
+
+func nodeHashSetsEqual(a, b map[NodeHash]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for hash, keep := range a {
+		if keep != b[hash] {
+			return false
+		}
+	}
+	return true
 }

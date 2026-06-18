@@ -47,6 +47,9 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/internal/mptproofmsg"
+	"github.com/ethereum/go-ethereum/internal/mptproofp2p"
+	"github.com/ethereum/go-ethereum/internal/partitionedmptshadow"
 	"github.com/ethereum/go-ethereum/internal/shutdowncheck"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/miner"
@@ -97,6 +100,8 @@ type Ethereum struct {
 	netRPCService *ethapi.NetAPI
 
 	p2pServer *p2p.Server
+
+	mptProofManager *partitionedmptshadow.StoredFileIPAManager
 
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 
@@ -172,6 +177,16 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		p2pServer:         stack.Server(),
 		shutdownTracker:   shutdowncheck.NewShutdownTracker(chainDb),
 	}
+	if config.PartitionedMPTShadow {
+		eth.mptProofManager = partitionedmptshadow.NewStoredFileIPAManager(partitionedmptshadow.NewEthDBStore(chainDb))
+	}
+	var partitionNodeDb ethdb.Database
+	if config.PartitionedMPTShadow {
+		partitionNodeDb, err = stack.OpenDatabase("partition-shadow", 64, config.DatabaseHandles, "", false)
+		if err != nil {
+			return nil, fmt.Errorf("open partition shadow node database: %w", err)
+		}
+	}
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
 	if bcVersion != nil {
@@ -194,15 +209,19 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			EnablePreimageRecording: config.EnablePreimageRecording,
 		}
 		cacheConfig = &core.CacheConfig{
-			TrieCleanLimit:      config.TrieCleanCache,
-			TrieCleanNoPrefetch: config.NoPrefetch,
-			TrieDirtyLimit:      config.TrieDirtyCache,
-			TrieDirtyDisabled:   config.NoPruning,
-			TrieTimeLimit:       config.TrieTimeout,
-			SnapshotLimit:       config.SnapshotCache,
-			Preimages:           config.Preimages,
-			StateHistory:        config.StateHistory,
-			StateScheme:         scheme,
+			TrieCleanLimit:                    config.TrieCleanCache,
+			TrieCleanNoPrefetch:               config.NoPrefetch,
+			TrieDirtyLimit:                    config.TrieDirtyCache,
+			TrieDirtyDisabled:                 config.NoPruning,
+			TrieTimeLimit:                     config.TrieTimeout,
+			SnapshotLimit:                     config.SnapshotCache,
+			Preimages:                         config.Preimages,
+			StateHistory:                      config.StateHistory,
+			StateScheme:                       scheme,
+			PartitionedMPTShadow:              config.PartitionedMPTShadow,
+			PartitionedMPTShadowPartitions:    config.PartitionedMPTShadowPartitions,
+			PartitionedMPTShadowNodePartition: config.PartitionedMPTShadowNodePartition,
+			PartitionedMPTShadowNodeDB:        partitionNodeDb,
 		}
 	)
 	// Override the chain config with provided settings.
@@ -498,6 +517,11 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 	protos := eth.MakeProtocols((*ethHandler)(s.handler), s.networkID, s.ethDialCandidates)
 	if s.config.SnapshotCache > 0 {
 		protos = append(protos, snap.MakeProtocols((*snapHandler)(s.handler), s.snapDialCandidates)...)
+	}
+	if s.config.PartitionedMPTShadow {
+		protos = append(protos, mptproofp2p.MakeProtocols(func(peer *p2p.Peer, sender mptproofmsg.Sender) mptproofmsg.Handler {
+			return s.mptProofManager.NewHandler(peer, sender)
+		})...)
 	}
 	return protos
 }

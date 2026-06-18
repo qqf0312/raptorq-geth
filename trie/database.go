@@ -35,10 +35,11 @@ import (
 
 // Config defines all necessary options for database.
 type Config struct {
-	Preimages bool           // Flag whether the preimage of node key is recorded
-	IsVerkle  bool           // Flag whether the db is holding a verkle tree
-	HashDB    *hashdb.Config // Configs for hash-based scheme
-	PathDB    *pathdb.Config // Configs for experimental path-based scheme
+	Preimages            bool           // Flag whether the preimage of node key is recorded
+	IsVerkle             bool           // Flag whether the db is holding a verkle tree
+	EnableColdProcessing bool           // Flag whether cold trie chunking and encoding is enabled
+	HashDB               *hashdb.Config // Configs for hash-based scheme
+	PathDB               *pathdb.Config // Configs for experimental path-based scheme
 }
 
 // HashDefaults represents a config for using hash-based scheme with
@@ -85,12 +86,23 @@ type backend interface {
 // types of node backend as an entrypoint. It's responsible for all interactions
 // relevant with trie nodes and node preimages.
 type Database struct {
-	config    *Config        // Configuration for trie database
-	diskdb    ethdb.Database // Persistent database to store the snapshot
-	preimages *preimageStore // The store for caching preimages
-	backend   backend        // The backend for managing trie nodes
+	config     *Config        // Configuration for trie database
+	diskdb     ethdb.Database // Persistent database to store the snapshot
+	preimages  *preimageStore // The store for caching preimages
+	backend    backend        // The backend for managing trie nodes
+	updateHook DatabaseUpdateHook
 
 	meta *StateMetaIndex // 冷热节点元数据索引
+}
+
+// DatabaseUpdateHook observes committed trie database updates.
+type DatabaseUpdateHook interface {
+	OnTrieDatabaseUpdate(db *Database, root common.Hash, parent common.Hash, block uint64, nodes *trienode.MergedNodeSet, states *triestate.Set) error
+}
+
+// SetUpdateHook installs a sidecar observer for trie database updates.
+func (db *Database) SetUpdateHook(hook DatabaseUpdateHook) {
+	db.updateHook = hook
 }
 
 // -------------------------- 冷热节点元数据核心逻辑 --------------------------
@@ -664,6 +676,14 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 	// 1. 原有底层更新逻辑（完全保留，不修改）
 	if err := db.backend.Update(root, parent, block, nodes, states); err != nil {
 		return err
+	}
+	if db.updateHook != nil {
+		if err := db.updateHook.OnTrieDatabaseUpdate(db, root, parent, block, nodes, states); err != nil {
+			return err
+		}
+	}
+	if !db.config.EnableColdProcessing {
+		return nil
 	}
 
 	// 2. 仅处理账户树叶子节点的元数据统计

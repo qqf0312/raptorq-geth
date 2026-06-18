@@ -127,6 +127,46 @@ func TestRootAwareManagerPartitionOutputRawNodeSets(t *testing.T) {
 	}
 }
 
+func TestNativeNodeSetUpdatedHashesMatchStatePathDiff(t *testing.T) {
+	root1 := buildTestRoot(t, nil, []mpttest.TestTrieEntry{
+		entryKey("A", 0x12, 0x34), entryKey("B", 0x12, 0x56), entryKey("C", 0x16, 0xab),
+	})
+	root2 := buildTestRoot(t, root1, []mpttest.TestTrieEntry{
+		entryKey("Y", 0x18, 0xff), entryKey("Z", 0x12, 0x88),
+	})
+	paths1, err := root1.ExtractStatePaths()
+	if err != nil {
+		t.Fatalf("root1 ExtractStatePaths: %v", err)
+	}
+	paths2, err := root2.ExtractStatePaths()
+	if err != nil {
+		t.Fatalf("root2 ExtractStatePaths: %v", err)
+	}
+	diff := partitioning.DiffStatePaths(paths1, paths2)
+	native := partitioning.UpdatedNodeHashesFromNodeSet(root2.UpdatedNodeSet())
+
+	if len(native) != len(diff.AddedNodeHashes) {
+		t.Fatalf("native updated hashes = %d, StatePath diff added hashes = %d", len(native), len(diff.AddedNodeHashes))
+	}
+	for hash := range native {
+		if !diff.AddedNodeHashes[hash] {
+			t.Fatalf("native updated hash %s missing from StatePath diff", hash)
+		}
+	}
+
+	manager := newTestManager(t, 3)
+	if _, err := manager.AddLatestRoot(root1); err != nil {
+		t.Fatalf("AddLatestRoot root1: %v", err)
+	}
+	result, err := manager.AddLatestRoot(root2)
+	if err != nil {
+		t.Fatalf("AddLatestRoot root2 with native NodeSet: %v", err)
+	}
+	if len(result.Diff.AddedNodeHashes) != len(native) {
+		t.Fatalf("result native-backed added hashes = %d, want %d", len(result.Diff.AddedNodeHashes), len(native))
+	}
+}
+
 func newTestManager(t *testing.T, partitionCount int) *partitioning.MPTPartitionManager {
 	t.Helper()
 	manager, err := partitioning.NewMPTPartitionManager(partitionCount, partitioning.SortByKey, partitioning.OptimizationConfig{

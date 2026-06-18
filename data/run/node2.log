@@ -1,0 +1,109 @@
+INFO [06-17|11:04:36.524] Maximum peer count                       ETH=50 total=50
+INFO [06-17|11:04:36.527] Smartcard socket not found, disabling    err="stat /run/pcscd/pcscd.comm: no such file or directory"
+INFO [06-17|11:04:36.531] Set global gas cap                       cap=50,000,000
+INFO [06-17|11:04:36.531] Initializing the KZG library             backend=gokzg
+INFO [06-17|11:04:36.561] Allocated trie memory caches             clean=154.00MiB dirty=256.00MiB
+INFO [06-17|11:04:36.562] Using pebble as the backing database
+INFO [06-17|11:04:36.562] Allocated cache and file handles         database=/root/qqf/raptorq-geth/data/node2/geth/chaindata cache=512.00MiB handles=524,288
+INFO [06-17|11:04:36.591] Opened ancient database                  database=/root/qqf/raptorq-geth/data/node2/geth/chaindata/ancient/chain readonly=false
+INFO [06-17|11:04:36.591] State scheme set to already existing     scheme=hash
+INFO [06-17|11:04:36.592] Initialising Ethereum protocol           network=12345 dbversion=<nil>
+INFO [06-17|11:04:37.352] Partitioned MPT shadow adapter enabled   partitions=4 nodePartition=1 store=ethdb
+INFO [06-17|11:04:37.352] 
+INFO [06-17|11:04:37.353] ---------------------------------------------------------------------------------------------------------------------------------------------------------
+INFO [06-17|11:04:37.353] Chain ID:  12345 (unknown)
+INFO [06-17|11:04:37.353] Consensus: Clique (proof-of-authority)
+INFO [06-17|11:04:37.353] 
+INFO [06-17|11:04:37.353] Pre-Merge hard forks (block based):
+INFO [06-17|11:04:37.353]  - Homestead:                   #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/homestead.md)
+INFO [06-17|11:04:37.353]  - Tangerine Whistle (EIP 150): #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/tangerine-whistle.md)
+INFO [06-17|11:04:37.353]  - Spurious Dragon/1 (EIP 155): #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)
+INFO [06-17|11:04:37.353]  - Spurious Dragon/2 (EIP 158): #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/spurious-dragon.md)
+INFO [06-17|11:04:37.353]  - Byzantium:                   #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/byzantium.md)
+INFO [06-17|11:04:37.353]  - Constantinople:              #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/constantinople.md)
+INFO [06-17|11:04:37.353]  - Petersburg:                  #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/petersburg.md)
+INFO [06-17|11:04:37.353]  - Istanbul:                    #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/istanbul.md)
+INFO [06-17|11:04:37.353]  - Berlin:                      #0        (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/berlin.md)
+INFO [06-17|11:04:37.353]  - London:                      #<nil> (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/london.md)
+INFO [06-17|11:04:37.353] 
+INFO [06-17|11:04:37.353] The Merge is not yet available for this network!
+INFO [06-17|11:04:37.353]  - Hard-fork specification: https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/paris.md
+INFO [06-17|11:04:37.353] 
+INFO [06-17|11:04:37.353] Post-Merge hard forks (timestamp based):
+INFO [06-17|11:04:37.353] 
+INFO [06-17|11:04:37.353] ---------------------------------------------------------------------------------------------------------------------------------------------------------
+INFO [06-17|11:04:37.353] 
+INFO [06-17|11:04:37.353] Loaded most recent local block           number=0 hash=071c84..829993 td=1 age=57y3mo1w
+WARN [06-17|11:04:37.353] Failed to load snapshot                  err="missing or corrupted snapshot"
+INFO [06-17|11:04:37.354] Rebuilding state snapshot
+INFO [06-17|11:04:37.354] Initialized transaction indexer          range="last 2350000 blocks"
+INFO [06-17|11:04:37.354] Resuming state snapshot generation       root=38eb50..9b0d65 accounts=0 slots=0 storage=0.00B dangling=0 elapsed="321.388µs"
+INFO [06-17|11:04:37.354] Regenerated local transaction journal    transactions=0 accounts=0
+INFO [06-17|11:04:37.356] Generated state snapshot                 accounts=4 slots=0 storage=184.00B dangling=0 elapsed=2.415ms
+INFO [06-17|11:04:37.381] Enabled snap sync                        head=0 hash=071c84..829993
+INFO [06-17|11:04:37.381] Gasprice oracle is ignoring threshold set threshold=2
+INFO [06-17|11:04:37.382] Stored checkpoint snapshot to disk       number=0 hash=071c84..829993
+WARN [06-17|11:04:37.382] Engine API enabled                       protocol=eth
+WARN [06-17|11:04:37.382] Engine API started but chain not configured for merge yet
+INFO [06-17|11:04:37.382] Starting peer-to-peer node               instance=Geth/v1.13.12-stable/linux-amd64/go1.22.3
+INFO [06-17|11:04:37.398] New local node record                    seq=1,781,694,277,396 id=2be8edaeec1249de ip=127.0.0.1 udp=0 tcp=30304
+INFO [06-17|11:04:37.398] Started P2P networking                   self="enode://0a251883bd52b5cf828b28a29e046fdc0ae7bec5a1bad12546715449fa4896a71d30f26ebb5793b9d3cc1c4089f916aae517b7054321a9b048ea5630d0a21c8a@127.0.0.1:30304?discport=0"
+INFO [06-17|11:04:37.399] IPC endpoint opened                      url=/root/qqf/raptorq-geth/data/node2/geth.ipc
+INFO [06-17|11:04:37.400] Generated JWT secret                     path=/root/qqf/raptorq-geth/data/node2/geth/jwtsecret
+INFO [06-17|11:04:37.401] HTTP server started                      endpoint=127.0.0.1:8546 auth=false prefix= cors= vhosts=localhost
+INFO [06-17|11:04:37.401] WebSocket enabled                        url=ws://127.0.0.1:8552
+INFO [06-17|11:04:37.401] HTTP server started                      endpoint=127.0.0.1:8552 auth=true  prefix= cors=localhost vhosts=localhost
+INFO [06-17|11:04:48.281] Looking for peers                        peercount=1 tried=0 static=0
+INFO [06-17|11:04:48.282] Block synchronisation started
+INFO [06-17|11:04:48.287] Syncing: state download in progress      synced=1.56% state=194.00B accounts=1@194.00B slots=0@0.00B codes=0@0.00B eta=140.407ms
+INFO [06-17|11:04:48.288] Imported new chain segment               number=1 hash=3abeaf..90284c blocks=1 txs=0 mgas=0.000 elapsed=1.033ms     mgasps=0.000 triedirty=0.00B
+INFO [06-17|11:04:48.289] Syncing: chain download in progress      synced=+Inf% chain=18.00B headers=1@6.00B bodies=1@6.00B receipts=1@6.00B eta=-2.410ms
+INFO [06-17|11:04:48.289] Syncing: state download in progress      synced=18.75% state=388.00B accounts=2@388.00B slots=0@0.00B codes=0@0.00B eta=18.714ms
+INFO [06-17|11:04:48.289] Indexed transactions                     blocks=2 txs=0 tail=0 elapsed="626.526µs"
+WARN [06-17|11:04:48.289] Unexpected account range packet          peer=9474e4d9 reqid=3,354,710,958,362,059,937
+WARN [06-17|11:04:48.290] Synchronisation failed, retrying         err="sync cancelled"
+WARN [06-17|11:05:03.004] Syncing, discarded propagated block      number=2 hash=111f9c..479f6c
+WARN [06-17|11:05:03.506] Syncing, discarded propagated block      number=2 hash=111f9c..479f6c
+INFO [06-17|11:05:33.004] Syncing: state download in progress      synced=18.75% state=388.00B accounts=2@388.00B slots=0@0.00B codes=0@0.00B eta=3m13.743s
+INFO [06-17|11:05:33.006] Syncing: chain download in progress      synced=100.00% chain=18.00B headers=3@6.00B bodies=1@6.00B receipts=1@6.00B eta=0s
+WARN [06-17|11:05:33.006] Unexpected account range packet          peer=9474e4d9 reqid=2,349,681,843,767,601,866
+INFO [06-17|11:05:33.006] Syncing: state download in progress      synced=37.52%  state=388.00B accounts=2@388.00B slots=0@0.00B codes=0@0.00B eta=1m14.458s
+INFO [06-17|11:05:33.011] Syncing: state download in progress      synced=100.00% state=776.00B accounts=4@776.00B slots=0@0.00B codes=0@0.00B eta=-612ns
+INFO [06-17|11:05:33.011] Syncing: state healing in progress       accounts=0@0.00B   slots=0@0.00B codes=0@0.00B nodes=0@0.00B pending=0
+INFO [06-17|11:05:33.013] Rebuilding state snapshot
+INFO [06-17|11:05:33.013] Committed new head block                 number=1 hash=3abeaf..90284c
+INFO [06-17|11:05:33.013] Resuming state snapshot generation       root=38eb50..9b0d65 accounts=0         slots=0       storage=0.00B   dangling=0 elapsed="367.402µs"
+INFO [06-17|11:05:33.013] Generated state snapshot                 accounts=4         slots=0       storage=188.00B dangling=0 elapsed="741.6µs"
+INFO [06-17|11:05:33.014] Imported new chain segment               number=3 hash=930afa..72f36d blocks=2 txs=0 mgas=0.000 elapsed="978.452µs" mgasps=0.000 triedirty=0.00B
+INFO [06-17|11:05:36.005] Syncing: chain download in progress      synced=300.00% chain=18.00B headers=3@6.00B bodies=3@6.00B receipts=3@6.00B eta=-31.812s
+INFO [06-17|11:05:36.006] Snap sync complete, auto disabling
+INFO [06-17|11:06:03.504] Imported new chain segment               number=4 hash=08fd76..41c883 blocks=1 txs=0 mgas=0.000 elapsed=1.059ms     mgasps=0.000 triedirty=0.00B
+INFO [06-17|11:06:33.790] Partitioned MPT shadow update complete   block=5 root=0x901b6c1f20f2538b42c4d38ef1ea54cf39eb0ebc4d36e4b374c1e73fd6ff2a91 changedPaths=168 partitions=4 localViews=1
+INFO [06-17|11:06:33.790] Imported new chain segment               number=5 hash=6b6520..c3a172 blocks=1 txs=164 mgas=3.444 elapsed=456.006ms   mgasps=7.553 snapdiffs=5.97KiB triedirty=54.89KiB
+INFO [06-17|11:06:34.619] Partitioned MPT shadow update complete   block=5 root=0x5e13268fab105cb6648e1adc42d992e45b940fc1815194f4367ea90f8c217a99 changedPaths=242 partitions=4 localViews=1
+INFO [06-17|11:06:34.620] Chain reorg detected                     number=4 hash=08fd76..41c883 drop=1 dropfrom=6b6520..c3a172 add=1 addfrom=b52462..f0fcb0
+INFO [06-17|11:06:34.621] Imported new chain segment               number=5 hash=b52462..f0fcb0 blocks=1 txs=238 mgas=4.998 elapsed=660.128ms   mgasps=7.571 snapdiffs=14.62KiB triedirty=95.08KiB
+INFO [06-17|11:07:04.819] Partitioned MPT shadow update complete   block=6 root=0x9c9c58d6137895637bf69b22f0f6cb8f06a3c0b69e76fed860cb2c52145f1cac changedPaths=415 partitions=4 localViews=1
+INFO [06-17|11:07:04.819] Chain reorg detected                     number=4 hash=08fd76..41c883 drop=1 dropfrom=b52462..f0fcb0 add=2 addfrom=1b47c2..242ae3
+INFO [06-17|11:07:04.823] Imported new chain segment               number=6 hash=1b47c2..242ae3 blocks=1 txs=336 mgas=7.056 elapsed=414.735ms   mgasps=17.013 snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:07:33.003] Imported new chain segment               number=7 hash=66df4a..325347 blocks=1 txs=0   mgas=0.000 elapsed=1.036ms     mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:08:03.004] Imported new chain segment               number=8 hash=904dc7..ed577d blocks=1 txs=0   mgas=0.000 elapsed="918.899µs" mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:08:33.003] Imported new chain segment               number=9 hash=5ff756..37abfb blocks=1 txs=0   mgas=0.000 elapsed="950.512µs" mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:09:03.004] Imported new chain segment               number=10 hash=65350e..1777b2 blocks=1 txs=0   mgas=0.000 elapsed=1.081ms     mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:09:33.004] Imported new chain segment               number=11 hash=426873..880fae blocks=1 txs=0   mgas=0.000 elapsed=1.125ms     mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:10:03.005] Imported new chain segment               number=12 hash=061d19..5bd943 blocks=1 txs=0   mgas=0.000 elapsed="879.703µs" mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:10:33.004] Imported new chain segment               number=13 hash=911f34..e96145 blocks=1 txs=0   mgas=0.000 elapsed="860.272µs" mgasps=0.000  snapdiffs=26.80KiB triedirty=218.26KiB
+INFO [06-17|11:10:36.581] Looking for peers                        peercount=2 tried=0 static=1
+INFO [06-17|11:10:38.629] Got interrupt, shutting down...
+INFO [06-17|11:10:38.629] HTTP server stopped                      endpoint=127.0.0.1:8546
+INFO [06-17|11:10:38.629] HTTP server stopped                      endpoint=127.0.0.1:8552
+INFO [06-17|11:10:38.630] IPC endpoint closed                      url=/root/qqf/raptorq-geth/data/node2/geth.ipc
+INFO [06-17|11:10:38.630] Ethereum protocol stopped
+INFO [06-17|11:10:38.630] Transaction pool stopped
+INFO [06-17|11:10:38.632] Writing cached state to disk             block=13 hash=911f34..e96145 root=9c9c58..5f1cac
+INFO [06-17|11:10:38.634] Persisted trie from memory database      nodes=698     size=99.41KiB time=2.353237ms gcnodes=0 gcsize=0.00B gctime=0s livenodes=176 livesize=30.08KiB
+INFO [06-17|11:10:38.634] Writing cached state to disk             block=12 hash=061d19..5bd943 root=9c9c58..5f1cac
+INFO [06-17|11:10:38.634] Persisted trie from memory database      nodes=0       size=0.00B    time="3.258µs"  gcnodes=0 gcsize=0.00B gctime=0s livenodes=176 livesize=30.08KiB
+INFO [06-17|11:10:38.634] Writing snapshot state to disk           root=38eb50..9b0d65
+INFO [06-17|11:10:38.634] Persisted trie from memory database      nodes=0       size=0.00B    time=886ns      gcnodes=0 gcsize=0.00B gctime=0s livenodes=176 livesize=30.08KiB
+INFO [06-17|11:10:38.635] Blockchain stopped

@@ -25,9 +25,10 @@ type TestTrieEntry struct {
 }
 
 type TestMPT struct {
-	Root    common.Hash
-	DB      *trie.Database
-	Entries []TestTrieEntry
+	Root        common.Hash
+	DB          *trie.Database
+	Entries     []TestTrieEntry
+	LastNodeSet *trienode.NodeSet
 }
 
 func (tree *TestMPT) RootHashString() string {
@@ -39,6 +40,13 @@ func (tree *TestMPT) RootHashString() string {
 
 func (tree *TestMPT) ExtractStatePaths() ([]partitioning.StatePath, error) {
 	return ExtractStatePaths(tree)
+}
+
+func (tree *TestMPT) UpdatedNodeSet() *trienode.NodeSet {
+	if tree == nil {
+		return nil
+	}
+	return tree.LastNodeSet
 }
 
 type TestMPTNode struct {
@@ -123,7 +131,7 @@ func BuildOrUpdateTestMPT(prev *TestMPT, entries []TestTrieEntry) (*TestMPT, err
 	for _, key := range stateKey {
 		out = append(out, cloneEntry(state[key]))
 	}
-	return &TestMPT{Root: root, DB: db, Entries: out}, nil
+	return &TestMPT{Root: root, DB: db, Entries: out, LastNodeSet: nodes}, nil
 }
 
 func BuildTestMPTFromEntries(t *testing.T, entries []TestTrieEntry) *TestMPT {

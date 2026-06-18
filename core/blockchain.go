@@ -41,6 +41,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/internal/partitionedmptshadow"
 	"github.com/ethereum/go-ethereum/internal/syncx"
 	"github.com/ethereum/go-ethereum/internal/version"
 	"github.com/ethereum/go-ethereum/log"
@@ -134,15 +135,19 @@ const (
 // CacheConfig contains the configuration values for the trie database
 // and state snapshot these are resident in a blockchain.
 type CacheConfig struct {
-	TrieCleanLimit      int           // Memory allowance (MB) to use for caching trie nodes in memory
-	TrieCleanNoPrefetch bool          // Whether to disable heuristic state prefetching for followup blocks
-	TrieDirtyLimit      int           // Memory limit (MB) at which to start flushing dirty trie nodes to disk
-	TrieDirtyDisabled   bool          // Whether to disable trie write caching and GC altogether (archive node)
-	TrieTimeLimit       time.Duration // Time limit after which to flush the current in-memory trie to disk
-	SnapshotLimit       int           // Memory allowance (MB) to use for caching snapshot entries in memory
-	Preimages           bool          // Whether to store preimage of trie key to the disk
-	StateHistory        uint64        // Number of blocks from head whose state histories are reserved.
-	StateScheme         string        // Scheme used to store ethereum states and merkle tree nodes on top
+	TrieCleanLimit                    int            // Memory allowance (MB) to use for caching trie nodes in memory
+	TrieCleanNoPrefetch               bool           // Whether to disable heuristic state prefetching for followup blocks
+	TrieDirtyLimit                    int            // Memory limit (MB) at which to start flushing dirty trie nodes to disk
+	TrieDirtyDisabled                 bool           // Whether to disable trie write caching and GC altogether (archive node)
+	TrieTimeLimit                     time.Duration  // Time limit after which to flush the current in-memory trie to disk
+	SnapshotLimit                     int            // Memory allowance (MB) to use for caching snapshot entries in memory
+	Preimages                         bool           // Whether to store preimage of trie key to the disk
+	StateHistory                      uint64         // Number of blocks from head whose state histories are reserved.
+	StateScheme                       string         // Scheme used to store ethereum states and merkle tree nodes on top
+	PartitionedMPTShadow              bool           // Whether to persist partitioned MPT shadow outputs
+	PartitionedMPTShadowPartitions    int            // Number of partitioned MPT shadow partitions
+	PartitionedMPTShadowNodePartition int            // Logical partition ID assigned to this node, or -1 if unset
+	PartitionedMPTShadowNodeDB        ethdb.Database // Optional sidecar DB for partition-local raw/compressed nodes
 
 	SnapshotNoBuild bool // Whether the background generation is allowed
 	SnapshotWait    bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
@@ -270,6 +275,22 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	}
 	// Open trie database with provided config
 	triedb := trie.NewDatabase(db, cacheConfig.triedbConfig())
+	if cacheConfig.PartitionedMPTShadow {
+		partitionCount := cacheConfig.PartitionedMPTShadowPartitions
+		if partitionCount <= 0 {
+			partitionCount = 4
+		}
+		nodePartition := cacheConfig.PartitionedMPTShadowNodePartition
+		adapter, err := partitionedmptshadow.NewDefaultTrieDatabaseAdapterWithStoreAndNodePartition(partitionCount, nodePartition, partitionedmptshadow.NewEthDBStore(db))
+		if err != nil {
+			return nil, fmt.Errorf("create partitioned MPT shadow adapter: %w", err)
+		}
+		if cacheConfig.PartitionedMPTShadowNodeDB != nil {
+			adapter.PartitionNodes = partitionedmptshadow.NewPartitionNodeDBStore(cacheConfig.PartitionedMPTShadowNodeDB)
+		}
+		triedb.SetUpdateHook(adapter)
+		log.Info("Partitioned MPT shadow adapter enabled", "partitions", partitionCount, "nodePartition", nodePartition, "store", "ethdb")
+	}
 
 	// Setup the genesis block, commit the provided genesis specification
 	// to database if the genesis block is not present yet, or load the

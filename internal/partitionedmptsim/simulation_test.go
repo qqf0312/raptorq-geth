@@ -9,8 +9,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254"
+	"github.com/consensys/gnark-crypto/ecc/bn254/fr"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/internal/fileipa"
 	"github.com/ethereum/go-ethereum/internal/ipa"
 	"github.com/ethereum/go-ethereum/internal/mptagg"
+	"github.com/ethereum/go-ethereum/internal/mptagg/linearrecovery"
+	"github.com/ethereum/go-ethereum/internal/mptproofmsg"
 	"github.com/ethereum/go-ethereum/internal/mpttest"
 	"github.com/ethereum/go-ethereum/internal/partitioning"
 )
@@ -715,6 +721,135 @@ func TestRootAwareManagerPartitionAndAggVerbose(t *testing.T) {
 	}
 }
 
+func TestRootAwarePartitionSendsFoldedFileIPAAndRecoversMissingPathData(t *testing.T) {
+	partitionCount := 4
+	manager := &partitioning.MPTPartitionManager{
+		PartitionCount:    partitionCount,
+		SortBy:            partitioning.SortByKey,
+		Config:            simOptimizationConfig(),
+		PreserveLatest:    false,
+		PreserveLatestSet: true,
+	}
+
+	root1, err := mpttest.BuildOrUpdateTestMPT(nil, initialMPTEntries())
+	if err != nil {
+		t.Fatalf("BuildOrUpdateTestMPT root1: %v", err)
+	}
+	if _, err := manager.AddLatestRoot(root1); err != nil {
+		t.Fatalf("AddLatestRoot root1: %v", err)
+	}
+	root2, err := mpttest.BuildOrUpdateTestMPT(root1, updateMPTEntries())
+	if err != nil {
+		t.Fatalf("BuildOrUpdateTestMPT root2: %v", err)
+	}
+	result2, err := manager.AddLatestRoot(root2)
+	if err != nil {
+		t.Fatalf("AddLatestRoot root2: %v", err)
+	}
+	if len(result2.Partitions) != partitionCount {
+		t.Fatalf("root2 partitions = %d, want %d", len(result2.Partitions), partitionCount)
+	}
+	if len(result2.Partitions[0].Paths) == 0 {
+		t.Fatalf("test setup expected partition-0 to own at least one changed path")
+	}
+
+	path := result2.Partitions[0].Paths[0]
+	if partitionHasPath(result2.Partitions[2], string(path.Key)) {
+		t.Fatalf("test setup expected partition-2 to miss path 0x%x", path.Key)
+	}
+	t.Logf("selected sender=partition-0 receiver=partition-2 path=0x%x pathNodes=%d pathHashes=%s", path.Key, len(path.Nodes), simShortPathHashes(path))
+	if len(result2.RawNodeSets) <= 2 {
+		t.Fatalf("missing partition-2 raw node set")
+	}
+	targetIndex, ok := simFirstNodeMissingFromRawSet(path.Nodes, result2.RawNodeSets[2])
+	if !ok {
+		t.Fatalf("test setup expected partition-2 to miss a raw node from path 0x%x", path.Key)
+	}
+	t.Logf("receiver partition-2 rawSetSize=%d missingTargetIndex=%d missingTargetHash=%s", len(result2.RawNodeSets[2]), targetIndex, simShortHashDisplay(path.Nodes[targetIndex].Hash))
+
+	files := simPathNodeHashPayloads(t, path)
+	coeffSets := simRecoveryVandermondeCoeffSets(len(files))
+	domain := "partitionedmptsim/folded-fileipa/recovery-v1"
+	t.Logf("file payloads=%d payloadBytesEach=%d coeffRows=%d coeffCols=%d domain=%q", len(files), len(files[0]), len(coeffSets), len(coeffSets[0]), domain)
+	for i := range coeffSets {
+		t.Logf("coeff row[%d]=%s", i, simFrVectorSummary(coeffSets[i], len(files)))
+	}
+	folded, err := fileipa.BuildFoldedFileIPA(files, coeffSets, domain)
+	if err != nil {
+		t.Fatalf("BuildFoldedFileIPA: %v", err)
+	}
+	sharedQ, err := simSharedFileIPACommitment(folded.Params, files)
+	if err != nil {
+		t.Fatalf("simSharedFileIPACommitment: %v", err)
+	}
+	t.Logf("folded fileipa rows=%d vectorLength=%d sharedQ=%s", len(folded.Rows), len(folded.Params.G), simG1Summary(sharedQ))
+
+	fileRefs := simFileRefsForPath(path, files)
+	rootHash := common.HexToHash(result2.RootHash)
+	packet, err := mptproofmsg.NewFoldedFileIPAProofPacket(1, rootHash, fileRefs, sharedQ, domain, folded)
+	if err != nil {
+		t.Fatalf("NewFoldedFileIPAProofPacket: %v", err)
+	}
+	t.Logf("sender packet id=%d root=%s files=%d rows=%d foldChallengeLayers=%d", packet.ID, packet.Root, len(packet.Files), len(packet.Rows), len(packet.FoldChallenges))
+
+	partition0Transport, partition2Transport, closeTransport := mptproofmsg.NewMemoryTransportPair(1)
+	defer closeTransport()
+	sender := mptproofmsg.NewSender(partition0Transport)
+	receiver := mptproofmsg.NewReceiver(partition2Transport)
+	if err := sender.SendFoldedFileIPAProof(*packet); err != nil {
+		t.Fatalf("SendFoldedFileIPAProof: %v", err)
+	}
+	received, err := receiver.Receive()
+	if err != nil {
+		t.Fatalf("Receive: %v", err)
+	}
+	proofPacket, ok := received.(*mptproofmsg.FoldedFileIPAProofPacket)
+	if !ok {
+		t.Fatalf("received packet type %T, want *FoldedFileIPAProofPacket", received)
+	}
+	if proofPacket.ID != packet.ID || proofPacket.Root != rootHash {
+		t.Fatalf("received packet metadata mismatch: id=%d root=%s", proofPacket.ID, proofPacket.Root)
+	}
+	if len(proofPacket.Files) != len(files) {
+		t.Fatalf("received file refs = %d, want %d", len(proofPacket.Files), len(files))
+	}
+	if len(proofPacket.Rows) != len(coeffSets) {
+		t.Fatalf("received rows = %d, want %d", len(proofPacket.Rows), len(coeffSets))
+	}
+	t.Logf("receiver got packet name=%s id=%d files=%d rows=%d vectorLength=%d paramsID=%q", proofPacket.Name(), proofPacket.ID, len(proofPacket.Files), len(proofPacket.Rows), proofPacket.VectorLength, proofPacket.ParamsID)
+
+	verified, err := mptproofmsg.VerifyFoldedFileIPAProofPacket(proofPacket)
+	if err != nil {
+		t.Fatalf("VerifyFoldedFileIPAProofPacket: %v", err)
+	}
+	if !verified {
+		t.Fatalf("received folded FileIPA proof did not verify")
+	}
+	t.Logf("receiver verified folded FileIPA proof: %v", verified)
+	receivedResult, _, _, err := proofPacket.ToFileIPAResult()
+	if err != nil {
+		t.Fatalf("ToFileIPAResult: %v", err)
+	}
+
+	recoveryRows := simRecoveryRowsFromFileIPARows(receivedResult.Rows)
+	recovered, lambda, err := linearrecovery.RecoverSingleNode(recoveryRows, len(files), targetIndex)
+	if err != nil {
+		t.Fatalf("RecoverSingleNode targetIndex=%d: %v", targetIndex, err)
+	}
+	recoveredBytes, err := fileipa.FrChunksToBytes([]fr.Element{recovered}, len(files[targetIndex]))
+	if err != nil {
+		t.Fatalf("FrChunksToBytes recovered target: %v", err)
+	}
+	if !bytes.Equal(recoveredBytes, files[targetIndex]) {
+		t.Fatalf("recovered bytes mismatch: got %x want %x", recoveredBytes, files[targetIndex])
+	}
+	if len(lambda) != len(recoveryRows) {
+		t.Fatalf("lambda length = %d, want %d", len(lambda), len(recoveryRows))
+	}
+	t.Logf("linear recovery lambda=%s", simFrVectorSummary(lambda, len(lambda)))
+	t.Logf("partition-0 sent path=0x%x rows=%d files=%d targetNode=%d missingPayload=%x", path.Key, len(proofPacket.Rows), len(proofPacket.Files), targetIndex, recoveredBytes)
+}
+
 func TestBuildOrUpdateMPTInitialAndUpdate(t *testing.T) {
 	root1, err := mpttest.BuildOrUpdateTestMPT(nil, initialMPTEntries())
 	if err != nil {
@@ -1339,6 +1474,121 @@ func partitionHasPath(partition partitioning.Partition, key string) bool {
 		}
 	}
 	return false
+}
+
+func simFirstNodeMissingFromRawSet(nodes []partitioning.PathNode, rawSet map[string]bool) (int, bool) {
+	for i := range nodes {
+		if !simRawSetHasNodeHash(rawSet, nodes[i].Hash) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func simRawSetHasNodeHash(rawSet map[string]bool, hash []byte) bool {
+	if len(hash) == 0 {
+		return false
+	}
+	if rawSet[hex.EncodeToString(hash)] {
+		return true
+	}
+	return rawSet[common.BytesToHash(hash).Hex()]
+}
+
+func simPathNodeHashPayloads(t *testing.T, path partitioning.StatePath) [][]byte {
+	t.Helper()
+	if len(path.Nodes) == 0 {
+		t.Fatalf("path 0x%x has no nodes", path.Key)
+	}
+	files := make([][]byte, len(path.Nodes))
+	for i := range path.Nodes {
+		if len(path.Nodes[i].Hash) == 0 {
+			t.Fatalf("path 0x%x node %d has empty hash", path.Key, i)
+		}
+		payload := make([]byte, 31)
+		copy(payload, path.Nodes[i].Hash)
+		files[i] = payload
+	}
+	return files
+}
+
+func simRecoveryVandermondeCoeffSets(nodeCount int) [][]fr.Element {
+	rowCount := nextPowerOfTwo(nodeCount)
+	if rowCount < 2 {
+		rowCount = 2
+	}
+	rows := make([][]fr.Element, rowCount)
+	for row := range rows {
+		rows[row] = make([]fr.Element, nodeCount)
+		var x fr.Element
+		x.SetUint64(uint64(row + 1))
+		var power fr.Element
+		power.SetOne()
+		for col := 0; col < nodeCount; col++ {
+			rows[row][col] = power
+			power.Mul(&power, &x)
+		}
+	}
+	return rows
+}
+
+func simSharedFileIPACommitment(params *ipa.Params, files [][]byte) (bn254.G1Affine, error) {
+	bFlat := make([]fr.Element, 0, len(files))
+	for i := range files {
+		chunks, err := fileipa.BytesToFrChunks(files[i])
+		if err != nil {
+			return bn254.G1Affine{}, fmt.Errorf("file %d chunks: %w", i, err)
+		}
+		bFlat = append(bFlat, chunks...)
+	}
+	padded := make([]fr.Element, nextPowerOfTwo(len(bFlat)))
+	copy(padded, bFlat)
+	return ipa.CommitB(params, padded)
+}
+
+func simFileRefsForPath(path partitioning.StatePath, files [][]byte) []mptproofmsg.FileRefWire {
+	refs := make([]mptproofmsg.FileRefWire, len(files))
+	for i := range refs {
+		key := make([]byte, 0, len(path.Key)+1)
+		key = append(key, path.Key...)
+		key = append(key, byte(i))
+		refs[i] = mptproofmsg.FileRefWire{
+			Key:  key,
+			Hash: common.BytesToHash(path.Nodes[i].Hash),
+			Size: uint64(len(files[i])),
+		}
+	}
+	return refs
+}
+
+func simRecoveryRowsFromFileIPARows(rows []fileipa.FileIPARow) []linearrecovery.LinearEncodedRow {
+	out := make([]linearrecovery.LinearEncodedRow, len(rows))
+	for i := range rows {
+		out[i] = linearrecovery.LinearEncodedRow{
+			A: append([]fr.Element(nil), rows[i].A...),
+			C: rows[i].C,
+		}
+	}
+	return out
+}
+
+func simFrVectorSummary(values []fr.Element, limit int) string {
+	if limit > len(values) {
+		limit = len(values)
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, values[i].String())
+	}
+	if limit < len(values) {
+		parts = append(parts, fmt.Sprintf("...(+%d)", len(values)-limit))
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func simG1Summary(point bn254.G1Affine) string {
+	raw := point.Bytes()
+	return simShortHashDisplay(raw[:])
 }
 
 func simPartitionsSummary(partitions []partitioning.Partition) string {

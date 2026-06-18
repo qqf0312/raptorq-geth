@@ -1,0 +1,5 @@
+node,block,root,partition,new_raw_nodes,raw_node_bytes,missing_raw_nodes,aggregated_nodes,commitment_bytes,dirty_node_count,dirty_node_bytes,dirty_account_node_count,dirty_account_node_bytes,dirty_storage_node_count,dirty_storage_node_bytes,dirty_deleted_node_count
+node1,3,0xaf58c167d3c6d5c9f7f71cb9cba0e98f7059b2ac37cbee43542e9f2b03febee5,0,72,8352,0,54,1728,138,16127,138,16127,0,0,0
+node2,3,0xaf58c167d3c6d5c9f7f71cb9cba0e98f7059b2ac37cbee43542e9f2b03febee5,1,136,15833,0,8,256,138,16127,138,16127,0,0,0
+node3,3,0xaf58c167d3c6d5c9f7f71cb9cba0e98f7059b2ac37cbee43542e9f2b03febee5,2,35,4643,0,78,2496,138,16127,138,16127,0,0,0
+node4,3,0xaf58c167d3c6d5c9f7f71cb9cba0e98f7059b2ac37cbee43542e9f2b03febee5,3,35,4490,0,78,2496,138,16127,138,16127,0,0,0

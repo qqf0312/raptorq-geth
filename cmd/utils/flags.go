@@ -269,6 +269,23 @@ var (
 		Usage:    "Scheme to use for storing ethereum state ('hash' or 'path')",
 		Category: flags.StateCategory,
 	}
+	PartitionedMPTShadowFlag = &cli.BoolFlag{
+		Name:     "partitionedmptshadow",
+		Usage:    "Enable partitioned MPT shadow output persistence",
+		Category: flags.StateCategory,
+	}
+	PartitionedMPTShadowPartitionsFlag = &cli.IntFlag{
+		Name:     "partitionedmptshadow.partitions",
+		Usage:    "Number of partitions for partitioned MPT shadow output",
+		Value:    4,
+		Category: flags.StateCategory,
+	}
+	PartitionedMPTShadowNodePartitionFlag = &cli.IntFlag{
+		Name:     "partitionedmptshadow.nodepartition",
+		Usage:    "Logical partition ID assigned to this node for partitioned MPT shadow experiments",
+		Value:    -1,
+		Category: flags.StateCategory,
+	}
 	StateHistoryFlag = &cli.Uint64Flag{
 		Name:     "history.state",
 		Usage:    "Number of recent blocks to retain state history for (default = 90,000 blocks, 0 = entire chain)",
@@ -927,6 +944,9 @@ var (
 		RemoteDBFlag,
 		DBEngineFlag,
 		StateSchemeFlag,
+		PartitionedMPTShadowFlag,
+		PartitionedMPTShadowPartitionsFlag,
+		PartitionedMPTShadowNodePartitionFlag,
 		HttpHeaderFlag,
 	}
 )
@@ -1652,6 +1672,26 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 	}
 	if ctx.IsSet(StateSchemeFlag.Name) {
 		cfg.StateScheme = ctx.String(StateSchemeFlag.Name)
+	}
+	if ctx.IsSet(PartitionedMPTShadowFlag.Name) {
+		cfg.PartitionedMPTShadow = ctx.Bool(PartitionedMPTShadowFlag.Name)
+	}
+	if ctx.IsSet(PartitionedMPTShadowPartitionsFlag.Name) || ctx.Bool(PartitionedMPTShadowFlag.Name) {
+		if ctx.Int(PartitionedMPTShadowPartitionsFlag.Name) <= 0 {
+			Fatalf("--%s must be greater than zero", PartitionedMPTShadowPartitionsFlag.Name)
+		}
+		cfg.PartitionedMPTShadowPartitions = ctx.Int(PartitionedMPTShadowPartitionsFlag.Name)
+	}
+	if ctx.IsSet(PartitionedMPTShadowNodePartitionFlag.Name) {
+		nodePartition := ctx.Int(PartitionedMPTShadowNodePartitionFlag.Name)
+		partitionCount := ctx.Int(PartitionedMPTShadowPartitionsFlag.Name)
+		if partitionCount <= 0 {
+			Fatalf("--%s must be greater than zero", PartitionedMPTShadowPartitionsFlag.Name)
+		}
+		if nodePartition < 0 || nodePartition >= partitionCount {
+			Fatalf("--%s must be in range [0, %d)", PartitionedMPTShadowNodePartitionFlag.Name, partitionCount)
+		}
+		cfg.PartitionedMPTShadowNodePartition = nodePartition
 	}
 	// Parse transaction history flag, if user is still using legacy config
 	// file with 'TxLookupLimit' configured, copy the value to 'TransactionHistory'.

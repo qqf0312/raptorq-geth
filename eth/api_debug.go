@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/internal/partitionedmptshadow"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -44,6 +45,15 @@ type DebugAPI struct {
 // NewDebugAPI creates a new DebugAPI instance.
 func NewDebugAPI(eth *Ethereum) *DebugAPI {
 	return &DebugAPI{eth: eth}
+}
+
+func (api *DebugAPI) RequestFoldedFileIPAProof(ctx context.Context, peerID string, root common.Hash, partitionID uint64, aggregateID string, originalIndex uint64, hash common.Hash) (*partitionedmptshadow.StoredFileIPARequestResult, error) {
+	if api.eth.mptProofManager == nil {
+		return nil, errors.New("partitioned MPT shadow proof manager is not enabled")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return api.eth.mptProofManager.RequestFoldedFileIPAProof(ctx, peerID, root, int(partitionID), aggregateID, int(originalIndex), hash)
 }
 
 // DumpBlock retrieves the entire state of the database at a given block.
