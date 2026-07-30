@@ -17,7 +17,7 @@ RANDOM_SEED="${RANDOM_SEED:-partitioned-shadow}"
 
 rpc() {
 	local payload="$1"
-	curl -s --max-time 10 -H 'Content-Type: application/json' --data "$payload" "$RPC_URL"
+	curl --noproxy '*' -s --max-time 10 -H 'Content-Type: application/json' --data "$payload" "$RPC_URL"
 }
 
 hex_result() {

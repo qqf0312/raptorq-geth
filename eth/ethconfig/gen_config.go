@@ -31,6 +31,12 @@ func (c Config) MarshalTOML() (interface{}, error) {
 		PartitionedMPTShadow              bool                   `toml:",omitempty"`
 		PartitionedMPTShadowPartitions    int                    `toml:",omitempty"`
 		PartitionedMPTShadowNodePartition int                    `toml:",omitempty"`
+		ColdTrieShadow                    bool                   `toml:",omitempty"`
+		FountainMPTShadow                 bool                   `toml:",omitempty"`
+		FountainMPTShadowEpochLength      uint64                 `toml:",omitempty"`
+		FountainMPTShadowRows             int                    `toml:",omitempty"`
+		FountainMPTShadowNodes            uint64                 `toml:",omitempty"`
+		FountainMPTShadowNodeIndex        uint64                 `toml:",omitempty"`
 		RequiredBlocks                    map[uint64]common.Hash `toml:"-"`
 		LightServ                         int                    `toml:",omitempty"`
 		LightIngress                      int                    `toml:",omitempty"`
@@ -75,6 +81,12 @@ func (c Config) MarshalTOML() (interface{}, error) {
 	enc.PartitionedMPTShadow = c.PartitionedMPTShadow
 	enc.PartitionedMPTShadowPartitions = c.PartitionedMPTShadowPartitions
 	enc.PartitionedMPTShadowNodePartition = c.PartitionedMPTShadowNodePartition
+	enc.ColdTrieShadow = c.ColdTrieShadow
+	enc.FountainMPTShadow = c.FountainMPTShadow
+	enc.FountainMPTShadowEpochLength = c.FountainMPTShadowEpochLength
+	enc.FountainMPTShadowRows = c.FountainMPTShadowRows
+	enc.FountainMPTShadowNodes = c.FountainMPTShadowNodes
+	enc.FountainMPTShadowNodeIndex = c.FountainMPTShadowNodeIndex
 	enc.RequiredBlocks = c.RequiredBlocks
 	enc.LightServ = c.LightServ
 	enc.LightIngress = c.LightIngress
@@ -123,6 +135,12 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 		PartitionedMPTShadow              *bool                  `toml:",omitempty"`
 		PartitionedMPTShadowPartitions    *int                   `toml:",omitempty"`
 		PartitionedMPTShadowNodePartition *int                   `toml:",omitempty"`
+		ColdTrieShadow                    *bool                  `toml:",omitempty"`
+		FountainMPTShadow                 *bool                  `toml:",omitempty"`
+		FountainMPTShadowEpochLength      *uint64                `toml:",omitempty"`
+		FountainMPTShadowRows             *int                   `toml:",omitempty"`
+		FountainMPTShadowNodes            *uint64                `toml:",omitempty"`
+		FountainMPTShadowNodeIndex        *uint64                `toml:",omitempty"`
 		RequiredBlocks                    map[uint64]common.Hash `toml:"-"`
 		LightServ                         *int                   `toml:",omitempty"`
 		LightIngress                      *int                   `toml:",omitempty"`
@@ -197,6 +215,24 @@ func (c *Config) UnmarshalTOML(unmarshal func(interface{}) error) error {
 	}
 	if dec.PartitionedMPTShadowNodePartition != nil {
 		c.PartitionedMPTShadowNodePartition = *dec.PartitionedMPTShadowNodePartition
+	}
+	if dec.ColdTrieShadow != nil {
+		c.ColdTrieShadow = *dec.ColdTrieShadow
+	}
+	if dec.FountainMPTShadow != nil {
+		c.FountainMPTShadow = *dec.FountainMPTShadow
+	}
+	if dec.FountainMPTShadowEpochLength != nil {
+		c.FountainMPTShadowEpochLength = *dec.FountainMPTShadowEpochLength
+	}
+	if dec.FountainMPTShadowRows != nil {
+		c.FountainMPTShadowRows = *dec.FountainMPTShadowRows
+	}
+	if dec.FountainMPTShadowNodes != nil {
+		c.FountainMPTShadowNodes = *dec.FountainMPTShadowNodes
+	}
+	if dec.FountainMPTShadowNodeIndex != nil {
+		c.FountainMPTShadowNodeIndex = *dec.FountainMPTShadowNodeIndex
 	}
 	if dec.RequiredBlocks != nil {
 		c.RequiredBlocks = dec.RequiredBlocks

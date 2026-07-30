@@ -41,6 +41,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
+	"github.com/ethereum/go-ethereum/internal/coldtrieshadow"
+	"github.com/ethereum/go-ethereum/internal/fountainmptshadow"
 	"github.com/ethereum/go-ethereum/internal/partitionedmptshadow"
 	"github.com/ethereum/go-ethereum/internal/syncx"
 	"github.com/ethereum/go-ethereum/internal/version"
@@ -148,6 +150,14 @@ type CacheConfig struct {
 	PartitionedMPTShadowPartitions    int            // Number of partitioned MPT shadow partitions
 	PartitionedMPTShadowNodePartition int            // Logical partition ID assigned to this node, or -1 if unset
 	PartitionedMPTShadowNodeDB        ethdb.Database // Optional sidecar DB for partition-local raw/compressed nodes
+	ColdTrieShadow                    bool           // Whether to persist cold trie shadow storage-cost outputs
+	ColdTrieShadowDB                  ethdb.Database // Optional sidecar DB for cold trie shadow outputs
+	FountainMPTShadow                 bool           // Whether to persist epoch fountain-coded MPT paths
+	FountainMPTShadowEpochLength      uint64         // Number of blocks per fountain MPT shadow epoch
+	FountainMPTShadowRows             int            // Minimum encoded rows per final MPT path
+	FountainMPTShadowNodes            uint64         // Number of nodes sharing encoded keys
+	FountainMPTShadowNodeIndex        uint64         // Local node index in the storage group
+	FountainMPTShadowDB               ethdb.Database // Sidecar DB for encoded paths, matrices, commitments, and proofs
 
 	SnapshotNoBuild bool // Whether the background generation is allowed
 	SnapshotWait    bool // Wait for snapshot construction on startup. TODO(karalabe): This is a dirty hack for testing, nuke it
@@ -224,6 +234,7 @@ type BlockChain struct {
 	triedb        *trie.Database                   // The database handler for maintaining trie nodes.
 	stateCache    state.Database                   // State database to reuse between imports (contains state cache)
 	txIndexer     *txIndexer                       // Transaction indexer, might be nil if not enabled
+	fountainMPT   *fountainmptshadow.EpochAdapter  // Optional block-level root recorder
 
 	hc            *HeaderChain
 	rmLogsFeed    event.Feed
@@ -275,6 +286,10 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 	}
 	// Open trie database with provided config
 	triedb := trie.NewDatabase(db, cacheConfig.triedbConfig())
+	var (
+		updateHooks        trie.DatabaseUpdateHooks
+		fountainMPTAdapter *fountainmptshadow.EpochAdapter
+	)
 	if cacheConfig.PartitionedMPTShadow {
 		partitionCount := cacheConfig.PartitionedMPTShadowPartitions
 		if partitionCount <= 0 {
@@ -288,8 +303,61 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		if cacheConfig.PartitionedMPTShadowNodeDB != nil {
 			adapter.PartitionNodes = partitionedmptshadow.NewPartitionNodeDBStore(cacheConfig.PartitionedMPTShadowNodeDB)
 		}
-		triedb.SetUpdateHook(adapter)
+		updateHooks = append(updateHooks, adapter)
 		log.Info("Partitioned MPT shadow adapter enabled", "partitions", partitionCount, "nodePartition", nodePartition, "store", "ethdb")
+	}
+	if cacheConfig.ColdTrieShadow {
+		if cacheConfig.ColdTrieShadowDB == nil {
+			return nil, errors.New("cold trie shadow enabled without sidecar database")
+		}
+		adapter := coldtrieshadow.NewAdapter(coldtrieshadow.NewEthDBStore(cacheConfig.ColdTrieShadowDB))
+		updateHooks = append(updateHooks, adapter)
+		log.Info("Cold trie shadow adapter enabled", "store", "coldtriedata")
+	}
+	if cacheConfig.FountainMPTShadow {
+		if cacheConfig.FountainMPTShadowDB == nil {
+			return nil, errors.New("fountain MPT shadow enabled without sidecar database")
+		}
+		adapter, err := fountainmptshadow.NewEpochAdapter(
+			fountainmptshadow.EpochAdapterConfig{
+				EpochLength: cacheConfig.FountainMPTShadowEpochLength,
+				MinimumRows: cacheConfig.FountainMPTShadowRows,
+				Seed:        []byte("fountainmptshadow/geth/v1"),
+				NodeCount:   cacheConfig.FountainMPTShadowNodes,
+				NodeIndex:   cacheConfig.FountainMPTShadowNodeIndex,
+			},
+			fountainmptshadow.NewEthDBStoreWithRootResolver(
+				cacheConfig.FountainMPTShadowDB,
+				func(number uint64) (common.Hash, bool) {
+					hash := rawdb.ReadCanonicalHash(db, number)
+					if hash == (common.Hash{}) {
+						return common.Hash{}, false
+					}
+					header := rawdb.ReadHeader(db, hash, number)
+					if header == nil {
+						return common.Hash{}, false
+					}
+					return header.Root, true
+				},
+			),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("create fountain MPT shadow adapter: %w", err)
+		}
+		updateHooks = append(updateHooks, adapter)
+		fountainMPTAdapter = adapter
+		log.Info("Fountain MPT shadow adapter enabled",
+			"epoch", cacheConfig.FountainMPTShadowEpochLength,
+			"rows", cacheConfig.FountainMPTShadowRows,
+			"nodes", cacheConfig.FountainMPTShadowNodes,
+			"nodeIndex", cacheConfig.FountainMPTShadowNodeIndex,
+			"store", "fountainmptdata",
+		)
+	}
+	if len(updateHooks) == 1 {
+		triedb.SetUpdateHook(updateHooks[0])
+	} else if len(updateHooks) > 1 {
+		triedb.SetUpdateHook(updateHooks)
 	}
 
 	// Setup the genesis block, commit the provided genesis specification
@@ -321,6 +389,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		blockCache:    lru.NewCache[common.Hash, *types.Block](blockCacheLimit),
 		txLookupCache: lru.NewCache[common.Hash, txLookup](txLookupCacheLimit),
 		futureBlocks:  lru.NewCache[common.Hash, *types.Block](maxFutureBlocks),
+		fountainMPT:   fountainMPTAdapter,
 		engine:        engine,
 		vmConfig:      vmConfig,
 	}
@@ -1490,6 +1559,15 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 	bc.futureBlocks.Remove(block.Hash())
 
 	if status == CanonStatTy {
+		if bc.fountainMPT != nil {
+			parent := bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
+			if parent == nil {
+				return NonStatTy, fmt.Errorf("missing parent header for fountain MPT block %d", block.NumberU64())
+			}
+			if err := bc.fountainMPT.OnCanonicalBlock(bc.triedb, block.Root(), parent.Root, block.NumberU64()); err != nil {
+				return NonStatTy, fmt.Errorf("record fountain MPT block %d: %w", block.NumberU64(), err)
+			}
+		}
 		bc.chainFeed.Send(ChainEvent{Block: block, Hash: block.Hash(), Logs: logs})
 		if len(logs) > 0 {
 			bc.logsFeed.Send(logs)

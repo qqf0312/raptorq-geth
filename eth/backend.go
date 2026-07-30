@@ -80,7 +80,9 @@ type Ethereum struct {
 	merger             *consensus.Merger
 
 	// DB interfaces
-	chainDb ethdb.Database // Block chain database
+	chainDb       ethdb.Database // Block chain database
+	coldTrieDb    ethdb.Database // Cold trie shadow sidecar database
+	fountainMPTDb ethdb.Database // Fountain MPT shadow sidecar database
 
 	eventMux       *event.TypeMux
 	engine         consensus.Engine
@@ -187,6 +189,22 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			return nil, fmt.Errorf("open partition shadow node database: %w", err)
 		}
 	}
+	var coldTrieDb ethdb.Database
+	if config.ColdTrieShadow {
+		coldTrieDb, err = stack.OpenDatabase("coldtriedata", 64, config.DatabaseHandles, "", false)
+		if err != nil {
+			return nil, fmt.Errorf("open cold trie shadow database: %w", err)
+		}
+		eth.coldTrieDb = coldTrieDb
+	}
+	var fountainMPTDb ethdb.Database
+	if config.FountainMPTShadow {
+		fountainMPTDb, err = stack.OpenDatabase("fountainmptdata", 64, config.DatabaseHandles, "", false)
+		if err != nil {
+			return nil, fmt.Errorf("open fountain MPT shadow database: %w", err)
+		}
+		eth.fountainMPTDb = fountainMPTDb
+	}
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
 	if bcVersion != nil {
@@ -222,6 +240,14 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			PartitionedMPTShadowPartitions:    config.PartitionedMPTShadowPartitions,
 			PartitionedMPTShadowNodePartition: config.PartitionedMPTShadowNodePartition,
 			PartitionedMPTShadowNodeDB:        partitionNodeDb,
+			ColdTrieShadow:                    config.ColdTrieShadow,
+			ColdTrieShadowDB:                  coldTrieDb,
+			FountainMPTShadow:                 config.FountainMPTShadow,
+			FountainMPTShadowEpochLength:      config.FountainMPTShadowEpochLength,
+			FountainMPTShadowRows:             config.FountainMPTShadowRows,
+			FountainMPTShadowNodes:            config.FountainMPTShadowNodes,
+			FountainMPTShadowNodeIndex:        config.FountainMPTShadowNodeIndex,
+			FountainMPTShadowDB:               fountainMPTDb,
 		}
 	)
 	// Override the chain config with provided settings.
@@ -570,6 +596,12 @@ func (s *Ethereum) Stop() error {
 	s.shutdownTracker.Stop()
 
 	s.chainDb.Close()
+	if s.coldTrieDb != nil {
+		s.coldTrieDb.Close()
+	}
+	if s.fountainMPTDb != nil {
+		s.fountainMPTDb.Close()
+	}
 	s.eventMux.Stop()
 
 	return nil

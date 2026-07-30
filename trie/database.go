@@ -35,11 +35,10 @@ import (
 
 // Config defines all necessary options for database.
 type Config struct {
-	Preimages            bool           // Flag whether the preimage of node key is recorded
-	IsVerkle             bool           // Flag whether the db is holding a verkle tree
-	EnableColdProcessing bool           // Flag whether cold trie chunking and encoding is enabled
-	HashDB               *hashdb.Config // Configs for hash-based scheme
-	PathDB               *pathdb.Config // Configs for experimental path-based scheme
+	Preimages bool           // Flag whether the preimage of node key is recorded
+	IsVerkle  bool           // Flag whether the db is holding a verkle tree
+	HashDB    *hashdb.Config // Configs for hash-based scheme
+	PathDB    *pathdb.Config // Configs for experimental path-based scheme
 }
 
 // HashDefaults represents a config for using hash-based scheme with
@@ -98,6 +97,21 @@ type Database struct {
 // DatabaseUpdateHook observes committed trie database updates.
 type DatabaseUpdateHook interface {
 	OnTrieDatabaseUpdate(db *Database, root common.Hash, parent common.Hash, block uint64, nodes *trienode.MergedNodeSet, states *triestate.Set) error
+}
+
+// DatabaseUpdateHooks fans database update notifications out to multiple hooks.
+type DatabaseUpdateHooks []DatabaseUpdateHook
+
+func (hooks DatabaseUpdateHooks) OnTrieDatabaseUpdate(db *Database, root common.Hash, parent common.Hash, block uint64, nodes *trienode.MergedNodeSet, states *triestate.Set) error {
+	for _, hook := range hooks {
+		if hook == nil {
+			continue
+		}
+		if err := hook.OnTrieDatabaseUpdate(db, root, parent, block, nodes, states); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetUpdateHook installs a sidecar observer for trie database updates.
@@ -615,8 +629,8 @@ func (db *Database) AccessAddr(key string, h uint64, nodeHash common.Hash) {
 	log.Info("节点元数据更新完成", "keyBytes", common.Bytes2Hex([]byte(key)), "block", h, "accessTime", meta.AccessTime, "coldThreshold", meta.Timer)
 }
 
-// IsLeafNode 基于原生decodeNode精准判断是否为叶子节点
-func IsLeafNode(blob []byte) bool {
+// IsLeafBlob reports whether blob encodes a trie leaf node.
+func IsLeafBlob(blob []byte) bool {
 	if len(blob) == 0 {
 		return false
 	}
@@ -636,8 +650,13 @@ func IsLeafNode(blob []byte) bool {
 	return isValueNode
 }
 
-// extractLeafValue 基于原生decodeNode解析叶子节点value（官方标准方式）
-func (db *Database) extractLeafValue(blob []byte) ([]byte, error) {
+// IsLeafNode 基于原生decodeNode精准判断是否为叶子节点
+func IsLeafNode(blob []byte) bool {
+	return IsLeafBlob(blob)
+}
+
+// LeafValueFromBlob extracts the raw value from a trie leaf node blob.
+func LeafValueFromBlob(blob []byte) ([]byte, error) {
 	if len(blob) == 0 {
 		return nil, errors.New("empty leaf node blob")
 	}
@@ -661,6 +680,33 @@ func (db *Database) extractLeafValue(blob []byte) ([]byte, error) {
 	return []byte(valueNode), nil
 }
 
+// LeafKeyFromPathAndBlob reconstructs the original key bytes for a leaf node
+// from the node-set path and leaf blob.
+func LeafKeyFromPathAndBlob(path string, blob []byte) ([]byte, error) {
+	decodedNode, err := decodeNode(nil, blob)
+	if err != nil {
+		return nil, err
+	}
+	sn, ok := decodedNode.(*shortNode)
+	if !ok {
+		return nil, errors.New("node is not a shortNode (leaf node)")
+	}
+	if _, ok := sn.Val.(valueNode); !ok {
+		return nil, errors.New("shortNode Val is not a valueNode")
+	}
+	parentNibbles := []byte(path)
+	fullNibbles := append(parentNibbles, sn.Key...)
+	if len(fullNibbles) == 65 && fullNibbles[64] == 16 {
+		fullNibbles = fullNibbles[:64]
+	}
+	return hexToKeybytes(fullNibbles), nil
+}
+
+// extractLeafValue 基于原生decodeNode解析叶子节点value（官方标准方式）
+func (db *Database) extractLeafValue(blob []byte) ([]byte, error) {
+	return LeafValueFromBlob(blob)
+}
+
 // Update performs a state transition by committing dirty nodes contained in the
 // given set in order to update state from the specified parent to the specified
 // root. The held pre-images accumulated up to this point will be flushed in case
@@ -682,83 +728,6 @@ func (db *Database) Update(root common.Hash, parent common.Hash, block uint64, n
 			return err
 		}
 	}
-	if !db.config.EnableColdProcessing {
-		return nil
-	}
-
-	// 2. 仅处理账户树叶子节点的元数据统计
-	accountOwner := common.Hash{} // 账户树固定owner（空哈希）
-	accountSubset, ok := nodes.Sets[accountOwner]
-	if !ok {
-		log.Debug("本次更新无账户树节点", "block", block)
-		return nil
-	}
-
-	// 3. 遍历账户树节点，仅处理叶子节点的元数据
-	accountSubset.ForEachWithOrder(func(path string, n *trienode.Node) {
-
-		// 仅处理叶子节点
-		if !IsLeafNode(n.Blob) {
-			log.Trace("跳过非叶子节点", "path", path)
-			return
-		}
-		decodedNode, err := decodeNode(nil, n.Blob)
-		if err != nil {
-			log.Warn("failed to decode node", "path", path, "err", err)
-			return
-		}
-
-		sn, ok := decodedNode.(*shortNode)
-		if !ok {
-			log.Warn("decoded node is not shortNode", "path", path)
-			return
-		}
-		parentNibbles := []byte(path)
-		fullNibbles := append(parentNibbles, sn.Key...)
-
-		if len(fullNibbles) == 65 && fullNibbles[64] == 16 {
-			fullNibbles = fullNibbles[:64] // 去掉终止符
-		}
-		if len(fullNibbles)%2 != 0 {
-			log.Warn("fullNibbles len not odd", "len", len(fullNibbles))
-		}
-		leafKeyNibbles := fullNibbles
-		// 5. 转成原生 key bytes
-		leafKeyBytes := hexToKeybytes(leafKeyNibbles)
-
-		key := string(leafKeyBytes) // 以原生 key bytes 作为元数据的键，更直观
-		// 跳过已删除节点，清理对应元数据
-		if n.IsDeleted() {
-			db.meta.Delete(key)
-			log.Trace("清理删除节点元数据", "key", key)
-			return
-		}
-
-		// 核心：更新节点元数据（无迁移，仅统计）
-		db.AccessAddr(key, block, n.Hash)
-	})
-
-	tr, coldTrRoot, err := db.BuildColdTrie(block, root)
-	if err != nil {
-		return err
-	}
-	if tr == nil {
-		log.Warn("构建冷节点Trie失败，跳过分块写入", "block", block, "root", root.Hex())
-		return nil // 构建失败则跳过分块写入，但不影响正常更新流程
-	}
-	chunks, err := db.SplitTrie(tr, coldTrRoot, 2)
-	if err != nil {
-		return err
-	}
-	encodedChunks, err := EncodeSubTrieChunk(chunks)
-	if err != nil {
-		return err
-	}
-	if err := WriteSubTrieChunkToDisk(db.diskdb, coldTrRoot, encodedChunks); err != nil {
-		return err
-	}
-	tr.Reset()
-
 	return nil
 }
 

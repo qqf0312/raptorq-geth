@@ -239,11 +239,6 @@ func rowsForResult(node string, db ethdb.Database, triedb *trie.Database, result
 		if err != nil {
 			return nil, fmt.Errorf("read localview partition %d: %w", partitionID, err)
 		}
-		proofSizes, err := proofNodeSizesByHash(triedb, result.Root, proofPathKeys(result, localView))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: %s block=%d root=%s partition=%d proof unavailable: %v\n", node, result.Block, result.Root, partitionID, err)
-			proofSizes = make(map[common.Hash]int)
-		}
 		row := blockRow{
 			Node:        node,
 			Block:       result.Block,
@@ -251,6 +246,7 @@ func rowsForResult(node string, db ethdb.Database, triedb *trie.Database, result
 			PartitionID: partitionID,
 			DirtyStats:  storedDirtyNodeStats(result),
 		}
+		var pendingProofHashes []common.Hash
 		for _, hashText := range rawSet.Hashes {
 			hash := common.HexToHash(hashText)
 			if seenRaw[hash] {
@@ -262,6 +258,17 @@ func rowsForResult(node string, db ethdb.Database, triedb *trie.Database, result
 				row.RawNodeBytes += size
 				continue
 			}
+			pendingProofHashes = append(pendingProofHashes, hash)
+		}
+		proofSizes := make(map[common.Hash]int)
+		var proofErr error
+		if len(pendingProofHashes) > 0 {
+			proofSizes, proofErr = proofNodeSizesByHash(triedb, result.Root, proofPathKeys(result, localView))
+			if proofErr != nil {
+				proofSizes = make(map[common.Hash]int)
+			}
+		}
+		for _, hash := range pendingProofHashes {
 			blob := rawdb.ReadLegacyTrieNode(db, hash)
 			if len(blob) == 0 {
 				if proofSize := proofSizes[hash]; proofSize > 0 {
@@ -274,6 +281,9 @@ func rowsForResult(node string, db ethdb.Database, triedb *trie.Database, result
 			}
 			row.NewRawNodes++
 			row.RawNodeBytes += len(blob)
+		}
+		if row.MissingRawNodes > 0 && proofErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s block=%d root=%s partition=%d missing_raw_nodes=%d proof unavailable: %v\n", node, result.Block, result.Root, partitionID, row.MissingRawNodes, proofErr)
 		}
 		for _, agg := range localView.AggregatedNodes {
 			row.AggregatedNodes++

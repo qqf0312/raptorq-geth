@@ -61,6 +61,8 @@ var Defaults = Config{
 	SnapshotCache:                     102,
 	FilterLogCacheSize:                32,
 	PartitionedMPTShadowNodePartition: -1,
+	FountainMPTShadowEpochLength:      128,
+	FountainMPTShadowNodes:            1,
 	Miner:                             miner.DefaultConfig,
 	TxPool:                            legacypool.DefaultConfig,
 	BlobPool:                          blobpool.DefaultConfig,
@@ -101,9 +103,15 @@ type Config struct {
 	// consistent with persistent state.
 	StateScheme string `toml:",omitempty"`
 
-	PartitionedMPTShadow              bool `toml:",omitempty"`
-	PartitionedMPTShadowPartitions    int  `toml:",omitempty"`
-	PartitionedMPTShadowNodePartition int  `toml:",omitempty"`
+	PartitionedMPTShadow              bool   `toml:",omitempty"`
+	PartitionedMPTShadowPartitions    int    `toml:",omitempty"`
+	PartitionedMPTShadowNodePartition int    `toml:",omitempty"`
+	ColdTrieShadow                    bool   `toml:",omitempty"`
+	FountainMPTShadow                 bool   `toml:",omitempty"`
+	FountainMPTShadowEpochLength      uint64 `toml:",omitempty"`
+	FountainMPTShadowRows             int    `toml:",omitempty"`
+	FountainMPTShadowNodes            uint64 `toml:",omitempty"`
+	FountainMPTShadowNodeIndex        uint64 `toml:",omitempty"`
 
 	// RequiredBlocks is a set of block number -> hash mappings which must be in the
 	// canonical chain of all remote peers. Setting the option makes geth verify the

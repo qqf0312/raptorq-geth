@@ -286,6 +286,38 @@ var (
 		Value:    -1,
 		Category: flags.StateCategory,
 	}
+	ColdTrieShadowFlag = &cli.BoolFlag{
+		Name:     "coldtrieshadow",
+		Usage:    "Enable cold trie shadow storage-cost output persistence",
+		Category: flags.StateCategory,
+	}
+	FountainMPTShadowFlag = &cli.BoolFlag{
+		Name:     "fountainmptshadow",
+		Usage:    "Enable epoch fountain-coded MPT path persistence",
+		Category: flags.StateCategory,
+	}
+	FountainMPTShadowEpochLengthFlag = &cli.Uint64Flag{
+		Name:     "fountainmptshadow.epoch",
+		Usage:    "Number of blocks in a fountain MPT shadow epoch",
+		Value:    ethconfig.Defaults.FountainMPTShadowEpochLength,
+		Category: flags.StateCategory,
+	}
+	FountainMPTShadowRowsFlag = &cli.IntFlag{
+		Name:     "fountainmptshadow.rows",
+		Usage:    "Minimum number of encoded rows per final MPT path (0 = path length)",
+		Category: flags.StateCategory,
+	}
+	FountainMPTShadowNodesFlag = &cli.Uint64Flag{
+		Name:     "fountainmptshadow.nodes",
+		Usage:    "Number of storage nodes sharing fountain MPT shadow keys",
+		Value:    ethconfig.Defaults.FountainMPTShadowNodes,
+		Category: flags.StateCategory,
+	}
+	FountainMPTShadowNodeIndexFlag = &cli.Uint64Flag{
+		Name:     "fountainmptshadow.nodeindex",
+		Usage:    "Zero-based local storage node index for fountain MPT shadow keys",
+		Category: flags.StateCategory,
+	}
 	StateHistoryFlag = &cli.Uint64Flag{
 		Name:     "history.state",
 		Usage:    "Number of recent blocks to retain state history for (default = 90,000 blocks, 0 = entire chain)",
@@ -947,6 +979,12 @@ var (
 		PartitionedMPTShadowFlag,
 		PartitionedMPTShadowPartitionsFlag,
 		PartitionedMPTShadowNodePartitionFlag,
+		ColdTrieShadowFlag,
+		FountainMPTShadowFlag,
+		FountainMPTShadowEpochLengthFlag,
+		FountainMPTShadowRowsFlag,
+		FountainMPTShadowNodesFlag,
+		FountainMPTShadowNodeIndexFlag,
 		HttpHeaderFlag,
 	}
 )
@@ -1692,6 +1730,38 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			Fatalf("--%s must be in range [0, %d)", PartitionedMPTShadowNodePartitionFlag.Name, partitionCount)
 		}
 		cfg.PartitionedMPTShadowNodePartition = nodePartition
+	}
+	if ctx.IsSet(ColdTrieShadowFlag.Name) {
+		cfg.ColdTrieShadow = ctx.Bool(ColdTrieShadowFlag.Name)
+	}
+	if ctx.IsSet(FountainMPTShadowFlag.Name) {
+		cfg.FountainMPTShadow = ctx.Bool(FountainMPTShadowFlag.Name)
+	}
+	if ctx.IsSet(FountainMPTShadowEpochLengthFlag.Name) || ctx.Bool(FountainMPTShadowFlag.Name) {
+		if ctx.Uint64(FountainMPTShadowEpochLengthFlag.Name) == 0 {
+			Fatalf("--%s must be greater than zero", FountainMPTShadowEpochLengthFlag.Name)
+		}
+		cfg.FountainMPTShadowEpochLength = ctx.Uint64(FountainMPTShadowEpochLengthFlag.Name)
+	}
+	if ctx.IsSet(FountainMPTShadowRowsFlag.Name) {
+		if ctx.Int(FountainMPTShadowRowsFlag.Name) < 0 {
+			Fatalf("--%s must not be negative", FountainMPTShadowRowsFlag.Name)
+		}
+		cfg.FountainMPTShadowRows = ctx.Int(FountainMPTShadowRowsFlag.Name)
+	}
+	if ctx.IsSet(FountainMPTShadowNodesFlag.Name) || ctx.Bool(FountainMPTShadowFlag.Name) {
+		if ctx.Uint64(FountainMPTShadowNodesFlag.Name) == 0 {
+			Fatalf("--%s must be greater than zero", FountainMPTShadowNodesFlag.Name)
+		}
+		cfg.FountainMPTShadowNodes = ctx.Uint64(FountainMPTShadowNodesFlag.Name)
+	}
+	if ctx.IsSet(FountainMPTShadowNodeIndexFlag.Name) {
+		nodeIndex := ctx.Uint64(FountainMPTShadowNodeIndexFlag.Name)
+		nodeCount := ctx.Uint64(FountainMPTShadowNodesFlag.Name)
+		if nodeIndex >= nodeCount {
+			Fatalf("--%s must be in range [0, %d)", FountainMPTShadowNodeIndexFlag.Name, nodeCount)
+		}
+		cfg.FountainMPTShadowNodeIndex = nodeIndex
 	}
 	// Parse transaction history flag, if user is still using legacy config
 	// file with 'TxLookupLimit' configured, copy the value to 'TransactionHistory'.
