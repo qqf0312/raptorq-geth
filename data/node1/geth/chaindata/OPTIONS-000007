@@ -19,7 +19,7 @@
   lbase_max_bytes=67108864
   max_concurrent_compactions=56
   max_manifest_file_size=134217728
-  max_open_files=524288
+  max_open_files=1073741792
   mem_table_size=134217728
   mem_table_stop_writes_threshold=2
   min_deletion_rate=0
