@@ -16,6 +16,15 @@ type Handler interface {
 	HandleFoldedFileIPAProof(*FoldedFileIPAProofPacket) error
 }
 
+// FountainHandler is optional so existing MPT proof handlers keep their
+// public interface and behavior unchanged.
+type FountainHandler interface {
+	HandleGetFountainOffer(*GetFountainOfferPacket) error
+	HandleFountainOffer(*FountainOfferPacket) error
+	HandleGetFountainAggregate(*GetFountainAggregatePacket) error
+	HandleFountainAggregate(*FountainAggregatePacket) error
+}
+
 func HandlePacket(handler Handler, code uint64, payload []byte) error {
 	if handler == nil {
 		return errors.New("nil handler")
@@ -44,9 +53,25 @@ func DispatchPacket(handler Handler, packet Packet) error {
 		return handler.HandleGetFoldedFileIPAProof(packet)
 	case *FoldedFileIPAProofPacket:
 		return handler.HandleFoldedFileIPAProof(packet)
+	case *GetFountainOfferPacket:
+		return dispatchFountain(handler, func(h FountainHandler) error { return h.HandleGetFountainOffer(packet) })
+	case *FountainOfferPacket:
+		return dispatchFountain(handler, func(h FountainHandler) error { return h.HandleFountainOffer(packet) })
+	case *GetFountainAggregatePacket:
+		return dispatchFountain(handler, func(h FountainHandler) error { return h.HandleGetFountainAggregate(packet) })
+	case *FountainAggregatePacket:
+		return dispatchFountain(handler, func(h FountainHandler) error { return h.HandleFountainAggregate(packet) })
 	default:
 		return fmt.Errorf("unknown mpt proof packet type %T", packet)
 	}
+}
+
+func dispatchFountain(handler Handler, call func(FountainHandler) error) error {
+	fountain, ok := handler.(FountainHandler)
+	if !ok {
+		return fmt.Errorf("mpt proof handler does not support fountain packets")
+	}
+	return call(fountain)
 }
 
 func encodeAny(packet any) ([]byte, error) {

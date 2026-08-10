@@ -9,6 +9,11 @@ NETWORK_ID="${NETWORK_ID:-12345}"
 NODE_COUNT="${NODE_COUNT:-4}"
 EPOCH_LENGTH="${EPOCH_LENGTH:-4}"
 MINIMUM_ROWS="${MINIMUM_ROWS:-4}"
+AUTO_MINE="${AUTO_MINE:-1}"
+MINER_GAS_LIMIT="${MINER_GAS_LIMIT:-}"
+TXPOOL_QUEUE_LIMIT="${TXPOOL_QUEUE_LIMIT:-}"
+MINER_GAS_LIMIT="${MINER_GAS_LIMIT:-}"
+TXPOOL_QUEUE_LIMIT="${TXPOOL_QUEUE_LIMIT:-}"
 VERBOSITY="${VERBOSITY:-3}"
 RUN_DIR="${RUN_DIR:-data/fountain-run}"
 GOCACHE="${GOCACHE:-/tmp/go-build-cache}"
@@ -88,7 +93,7 @@ for idx in $(seq 1 "$NODE_COUNT"); do
 		--http
 		--http.addr 127.0.0.1
 		--http.port "$http_port"
-		--http.api admin,eth,net,web3,personal,miner,txpool
+		--http.api admin,debug,eth,net,web3,personal,miner,txpool
 		--authrpc.port "$auth_port"
 		--nodiscover
 		--fountainmptshadow
@@ -98,14 +103,38 @@ for idx in $(seq 1 "$NODE_COUNT"); do
 		--fountainmptshadow.nodeindex "$node_index"
 		--verbosity "$VERBOSITY"
 	)
+	if [ -n "$MINER_GAS_LIMIT" ]; then
+		args+=(--miner.gaslimit "$MINER_GAS_LIMIT")
+	fi
+	if [ -n "$TXPOOL_QUEUE_LIMIT" ]; then
+		args+=(
+			--txpool.accountslots "$TXPOOL_QUEUE_LIMIT"
+			--txpool.accountqueue "$TXPOOL_QUEUE_LIMIT"
+			--txpool.globalslots "$TXPOOL_QUEUE_LIMIT"
+			--txpool.globalqueue "$TXPOOL_QUEUE_LIMIT"
+		)
+	fi
+	if [ -n "$MINER_GAS_LIMIT" ]; then
+		args+=(--miner.gaslimit "$MINER_GAS_LIMIT")
+	fi
+	if [ -n "$TXPOOL_QUEUE_LIMIT" ]; then
+		args+=(
+			--txpool.accountslots "$TXPOOL_QUEUE_LIMIT"
+			--txpool.accountqueue "$TXPOOL_QUEUE_LIMIT"
+			--txpool.globalslots "$TXPOOL_QUEUE_LIMIT"
+			--txpool.globalqueue "$TXPOOL_QUEUE_LIMIT"
+		)
+	fi
 	if [ "$idx" -eq 1 ]; then
 		args+=(
 			--unlock "$SIGNER"
 			--password data/node1/password.txt
 			--allow-insecure-unlock
-			--mine
 			--miner.etherbase "$SIGNER"
 		)
+		if [ "$AUTO_MINE" = "1" ]; then
+			args+=(--mine)
+		fi
 	fi
 
 	echo "Starting node${idx}: http=${http_port} p2p=${p2p_port} fountainNodeIndex=${node_index}"

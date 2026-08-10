@@ -47,6 +47,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/internal/fountainmptshadow"
 	"github.com/ethereum/go-ethereum/internal/mptproofmsg"
 	"github.com/ethereum/go-ethereum/internal/mptproofp2p"
 	"github.com/ethereum/go-ethereum/internal/partitionedmptshadow"
@@ -103,7 +104,8 @@ type Ethereum struct {
 
 	p2pServer *p2p.Server
 
-	mptProofManager *partitionedmptshadow.StoredFileIPAManager
+	mptProofManager         *partitionedmptshadow.StoredFileIPAManager
+	fountainRecoveryManager *fountainmptshadow.RecoveryManager
 
 	lock sync.RWMutex // Protects the variadic fields (e.g. gas price and etherbase)
 
@@ -204,6 +206,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 			return nil, fmt.Errorf("open fountain MPT shadow database: %w", err)
 		}
 		eth.fountainMPTDb = fountainMPTDb
+		eth.fountainRecoveryManager = fountainmptshadow.NewRecoveryManager(fountainmptshadow.NewEthDBStore(fountainMPTDb))
 	}
 	bcVersion := rawdb.ReadDatabaseVersion(chainDb)
 	var dbVer = "<nil>"
@@ -544,9 +547,17 @@ func (s *Ethereum) Protocols() []p2p.Protocol {
 	if s.config.SnapshotCache > 0 {
 		protos = append(protos, snap.MakeProtocols((*snapHandler)(s.handler), s.snapDialCandidates)...)
 	}
-	if s.config.PartitionedMPTShadow {
+	if s.config.PartitionedMPTShadow || s.config.FountainMPTShadow {
 		protos = append(protos, mptproofp2p.MakeProtocols(func(peer *p2p.Peer, sender mptproofmsg.Sender) mptproofmsg.Handler {
-			return s.mptProofManager.NewHandler(peer, sender)
+			var legacy mptproofmsg.Handler
+			if s.mptProofManager != nil {
+				legacy = s.mptProofManager.NewHandler(peer, sender)
+			}
+			var fountain mptproofmsg.FountainHandler
+			if s.fountainRecoveryManager != nil {
+				fountain = s.fountainRecoveryManager.NewHandler(peer, sender)
+			}
+			return mptproofmsg.NewHandlerMux(legacy, fountain)
 		})...)
 	}
 	return protos

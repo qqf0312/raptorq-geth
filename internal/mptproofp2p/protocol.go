@@ -13,7 +13,7 @@ import (
 const (
 	ProtocolName    = "mptproof"
 	ProtocolVersion = 1
-	ProtocolLength  = mptproofmsg.FoldedFileIPAProofMsg + 1
+	ProtocolLength  = mptproofmsg.FountainAggregateMsg + 1
 )
 
 type NodeInfo struct {

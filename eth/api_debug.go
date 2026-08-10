@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/consensys/gnark-crypto/ecc/bn254"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -29,6 +30,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/internal/fountainmptshadow"
+	"github.com/ethereum/go-ethereum/internal/mptproofmsg"
 	"github.com/ethereum/go-ethereum/internal/partitionedmptshadow"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -54,6 +57,41 @@ func (api *DebugAPI) RequestFoldedFileIPAProof(ctx context.Context, peerID strin
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	return api.eth.mptProofManager.RequestFoldedFileIPAProof(ctx, peerID, root, int(partitionID), aggregateID, int(originalIndex), hash)
+}
+
+// RequestFountainMPTPath recovers one path from a peer. commitment must be the
+// locally persisted Q for (root,key); the remote peer is never allowed to
+// supply or replace this trust anchor.
+func (api *DebugAPI) RequestFountainMPTPath(ctx context.Context, peerID string, root common.Hash, key hexutil.Bytes, commitment hexutil.Bytes) (*fountainmptshadow.RecoveryResult, error) {
+	if api.eth.fountainRecoveryManager == nil {
+		return nil, errors.New("fountain MPT recovery manager is not enabled")
+	}
+	q, err := mptproofmsg.G1FromWire(mptproofmsg.G1Wire(commitment))
+	if err != nil {
+		return nil, fmt.Errorf("invalid local path commitment: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return api.eth.fountainRecoveryManager.RecoverRemotePath(ctx, peerID, root, key, q)
+}
+
+// RequestFountainMPTPathLocal derives Q from this node's own retained MPT path
+// using the aggregate layout advertised by the peer. It is intended for live
+// end-to-end testing before the local source path is pruned.
+func (api *DebugAPI) RequestFountainMPTPathLocal(ctx context.Context, peerID string, root common.Hash, key hexutil.Bytes) (*fountainmptshadow.RecoveryResult, error) {
+	if api.eth.fountainRecoveryManager == nil {
+		return nil, errors.New("fountain MPT recovery manager is not enabled")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	resolver := fountainmptshadow.TriePathResolver{DB: api.eth.BlockChain().TrieDB()}
+	return api.eth.fountainRecoveryManager.RecoverRemotePathWithResolver(ctx, peerID, root, key, func(offer *mptproofmsg.FountainOfferPacket) (bn254.G1Affine, error) {
+		nodes, err := resolver.PathNodes(root, key)
+		if err != nil {
+			return bn254.G1Affine{}, err
+		}
+		return fountainmptshadow.CommitPathAtAggregateLayout(nodes, offer.SegmentOffset, offer.WitnessLength, offer.VectorLength)
+	})
 }
 
 // DumpBlock retrieves the entire state of the database at a given block.

@@ -1041,3 +1041,203 @@ go test ./...
 6. 新 sidecar 使用单字节 key 和版本化紧凑二进制格式；旧长前缀 sidecar 若要原地升级，需要迁移工具；
 7. 空 epoch 当前仍可能重新编码最终 path，后续可根据 root/dirty set 跳过未变化 epoch；
 8. 实验 IPA 参数使用当前项目的 deterministic test params，生产环境需要固定并审计正式参数生成方式。
+
+### 21. Fountain path 网络恢复
+
+网络恢复保持第 10 节的原始证明边界不变：仍然是“一个本地节点、一个 epoch、一份 aggregate IPA proof”，不会按 Key 重新生成 proof，也不会修改基础 IPA 或 shared-witness folding。
+
+恢复方必须在原始 path 尚未裁剪时，本地保存 `(root,key)` 对应的 path commitment `Q_expected`。远端响应中的 segment commitment 只能用于组成 aggregate，不能替换这个本地信任根。
+
+通信分为两个阶段：
+
+```text
+GetFountainOffer(root,key)
+    -> seed, SourceCount, RowCount, layout, aggregateID
+
+本地根据 seed 重建矩阵
+    -> 检查每个 source 单位向量是否均在矩阵行空间中
+    -> 不可完整恢复时停止，不下载 aggregate
+
+GetFountainAggregate(aggregateID)
+    -> 原有 epoch aggregate 的紧凑自包含网络编码
+```
+
+aggregate 网络编码包含全部公开 relation `C`、segment commitment 和原始 IPA proof；生成矩阵、展开后的 `A`、folding challenge 和 witness 均不传输，由接收方确定性重建。同一 `(peer,aggregateID)` 验证成功后会缓存，后续恢复该 epoch 的其他 Key 不再下载 aggregate。
+
+接收方固定按照以下顺序执行：
+
+```text
+1. 根据 seed 重建矩阵并确认能够完整恢复
+2. 解码 aggregate，并检查 content ID
+3. 在 aggregate 中定位 (root,key) 的 path segment
+4. 检查 Q_segment == Q_expected（本地预存 Q）
+5. 调用 VerifyEpochAggregate 验证原有 aggregate IPA proof
+6. 从已验证 relations 中提取该 Key 的全部 C
+7. 调用 RecoverPath 恢复原始 MPT path
+8. 解码 path 节点和 leaf value
+```
+
+因此 IPA 验证发生在使用 `C` 恢复 path 之前。错误 seed、秩不足、aggregate ID 不一致、远端 Q 与本地 Q 不一致、proof 或 `C` 被篡改，都会在恢复前被拒绝。
+
+启用 `--fountainmptshadow` 后，恢复消息复用已有 `mptproof` devp2p capability。调试 RPC 为：
+
+```text
+debug_requestFountainMPTPath(peerID, root, key, localCommitmentQ)
+```
+
+其中 `localCommitmentQ` 必须来自调用节点自己的 commitment 存储，不能直接使用待请求 peer 临时返回的 Q。
+
+在原始 path 尚未裁剪的真实节点实验中，也可以让请求节点直接从自己的 canonical MPT 计算 Q：
+
+```text
+debug_requestFountainMPTPathLocal(peerID, root, key)
+```
+
+该接口先接收 offer 中的 segment offset、witness length 和 aggregate vector length，再从请求节点自己的 `(root,key)` MPT path 计算同布局的 `Q_expected`。远端 aggregate 中的 segment Q 必须与该本地计算结果相同，之后才执行 IPA 验证。
+
+真实四节点回归脚本为：
+
+```bash
+GETH_BIN=/tmp/fountain-geth \
+EPOCH_LENGTH=4 \
+MINIMUM_ROWS=4 \
+scripts/test-fountain-recovery-4nodes.sh
+```
+
+一次 4 节点、2 轮交易、30% 热点 Key 的实测结果：目标 path 有 2 个 source、4 条编码行；offer 响应为 82 B，首次完整 epoch aggregate 响应为 6512 B；请求节点独立计算的 Q 匹配，aggregate IPA 验证通过，并恢复出 2 个原始 MPT path 节点。脚本最终输出 `REAL_FOUNTAIN_RECOVERY_OK`。
+
+### 22. 四 Epoch 恢复带宽实验与同 Root 索引问题
+
+为测量较大 epoch 下的真实恢复带宽，新增了严格控制交易数的四节点实验：
+
+```bash
+GETH_BIN=/tmp/fountain-geth \
+EPOCH_LENGTH=8 \
+EPOCH_COUNT=4 \
+TXS_PER_BLOCK=100 \
+MINIMUM_ROWS=4 \
+scripts/test-fountain-recovery-epochs-4nodes.sh
+```
+
+实验参数为：
+
+```text
+nodes          = 4
+epochLength    = 8 blocks
+epochCount     = 4
+transactions  = 100 per block
+data blocks    = 32
+total txs      = 3200
+minimumRows    = 4
+```
+
+#### 22.1 严格控制每块 100 笔交易
+
+仅通过反复调用 `miner_start` 和 `miner_stop` 不能可靠地产生单个区块：Clique sealing 完成目标块后可能已经开始下一个空块。实验因此使用独立创世配置：
+
+```text
+data/genesis-fountain-bandwidth-test.json
+gasLimit = 2,100,000 = 100 * 21,000
+```
+
+测试在停止挖矿时按连续 nonce 预先提交 3200 笔普通转账，并把实验节点的 transaction pool 上限提高到 4096。开始挖矿前必须满足：
+
+```text
+pending = 0xc80 = 3200
+queued  = 0
+```
+
+由于一个普通转账消耗 21000 gas，单块最多容纳 100 笔。脚本仍会在每个 epoch 边界通过 `eth_getBlockTransactionCountByNumber` 检查该 epoch 的 8 个区块，任何区块不是 100 笔都会直接终止实验。
+
+`start-fountain-shadow-4nodes.sh` 为此增加了以下可选环境变量；默认值保持原有启动行为：
+
+```text
+AUTO_MINE=0                 启动后不自动挖矿
+MINER_GAS_LIMIT=2100000     设置目标 block gas limit
+TXPOOL_QUEUE_LIMIT=4096     设置 account/global slots 和 queue
+```
+
+带宽实验还会临时建立四节点全连接，减少某个 DHT owner 在 epoch 边界落后造成的恢复等待。后台高度监控在达到第 32 个数据块时立即调用 `miner_stop`，避免交易耗尽后持续产生完整空 epoch。每次成功恢复都会追加到：
+
+```text
+data/fountain-run/epoch-recovery-results.log
+```
+
+#### 22.2 带宽统计口径
+
+`RecoveryResult` 分别记录：
+
+```text
+OfferBytes      = FountainOfferPacket 的 RLP 响应字节数
+AggregateBytes  = FountainAggregatePacket 的 RLP 响应字节数
+```
+
+该统计是两阶段响应 payload，不包括请求消息、devp2p 帧头、TCP/IP 包头和重传。
+
+本次目标 Key 的布局为：
+
+```text
+SourceCount = 4
+RowCount    = 4
+```
+
+每条编码行含 8 个 Fr `C`，每个 Fr 为 32 B，所以目标 Key 自身的编码结果为：
+
+```text
+4 rows * 8 chunks * 32 B = 1024 B
+```
+
+第二阶段当前发送的不是这 1024 B，而是该 owner 的完整 epoch aggregate，其中还包括其他 Key 和历史叶的公开 `C`、segment commitments、关系布局以及原始聚合 IPA proof。
+
+#### 22.3 实测结果
+
+32 个数据区块均确认包含恰好 100 笔交易。前三次冷恢复结果有效，并且全部满足：
+
+```text
+aggregateCached = false
+ipaValidated    = true
+```
+
+| 数据 epoch | 边界高度 | Offer | Aggregate | 响应总量 |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 8 | 84 B | 94,929 B | 95,013 B |
+| 2 | 16 | 84 B | 100,857 B | 100,941 B |
+| 3 | 24 | 84 B | 100,857 B | 100,941 B |
+| 4 | 32 | 84 B | 51,256 B | 51,340 B（无效测量，见下一节） |
+
+该负载在每个区块反复更新同一组 100 个接收地址，并不是每块创建 100 个新 Key。因此 Key 集合不会随 epoch 持续增长；aggregate 又只包含本 epoch 的版本关系，不会重复纳入以前 epoch 已经持久化的历史关系。提供目标 Key 的 owner 在各 epoch 的记录数量为：
+
+| 数据 epoch | 最新 path | 历史叶 |
+| --- | ---: | ---: |
+| 1 | 26 | 176 |
+| 2 | 26 | 200 |
+| 3 | 26 | 200 |
+| 4 | 26 | 200 |
+
+所以在当前重复 Key 负载下，epoch 2、3、4 的正常恢复带宽应基本稳定在约 100 KB。若要测试随 Key 数量增长的带宽，应让不同区块写入新的地址集合。
+
+#### 22.4 第四次测量为什么异常变小
+
+原始实验在等待较慢节点完成高度 32 的 aggregate 时，出块节点已经耗尽交易并继续产生空块。空块不改变状态，因此出现：
+
+```text
+root_32 = root_40 = root_48 = ...
+```
+
+当前最新 path locator 使用 `(root,key)` 作为数据库 key：
+
+```text
+SaveEncodedPath -> pathKey(path.Root, path.Key)
+EncodedPath     -> pathKey(root, key)
+```
+
+后续空 epoch 会为相同 root 再次编码最终 path，并覆盖同一 `(root,key)` locator，使它指向后续空 epoch 的 aggregate。空 epoch 没有版本变化：
+
+```text
+versions         = 0
+historicalLeaves = 0
+```
+
+第四次请求因此取到了一个只有最新 path、没有高度 25--32 历史关系的后续空 epoch aggregate。它仍绑定相同 root 和 path，所以本地 Q 绑定与 IPA 验证都能成功，但 51,256 B 不能代表第 4 个数据 epoch 的 aggregate 带宽，应从比较中排除。
+
+当前实验脚本通过在高度 32 及时停止挖矿，避免形成后续完整空 epoch。底层仍存在同 root 跨 epoch locator 冲突：若协议需要按指定 epoch 恢复，即使多个 epoch 的 state root 相同，也应把定位身份扩展为至少 `(height,root,key)`，并在 offer 请求和持久化索引中同时携带 height。该底层修复尚未实现。

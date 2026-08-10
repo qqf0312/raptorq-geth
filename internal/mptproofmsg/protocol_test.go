@@ -22,6 +22,10 @@ func TestPacketRoundTrip(t *testing.T) {
 		&GetProofPacket{ID: 3, Root: root, PathKey: []byte("account-c")},
 		&ProofPacket{ID: 4, Root: root, PathKey: []byte("account-d"), Proof: []byte("proof")},
 		&GetFoldedFileIPAProofPacket{ID: 5, Root: root, Files: testFileRefs(), CoeffSets: ScalarMatrixToWire(testCoeffSets()), Domain: "domain"},
+		&GetFountainOfferPacket{ID: 6, Root: root, PathKey: []byte("account-e")},
+		&FountainOfferPacket{ID: 7, Found: true, Height: 10, Seed: []byte("seed"), SourceCount: 2, RowCount: 4, NodeCount: 3, CompactBytes: 400, AggregateHeight: 10, AggregateID: root},
+		&GetFountainAggregatePacket{ID: 8, Height: 10, AggregateID: root},
+		&FountainAggregatePacket{ID: 9, Found: true, Height: 10, AggregateID: root, Bundle: []byte("bundle")},
 	}
 	for _, want := range tests {
 		code, payload, err := EncodePacket(want)
@@ -63,6 +67,10 @@ func TestHandlePacketDispatchesByCode(t *testing.T) {
 		{GetProofMsg, &GetProofPacket{ID: 3, Root: root, PathKey: []byte("c")}, "get-proof:3"},
 		{ProofMsg, &ProofPacket{ID: 4, Root: root, PathKey: []byte("d"), Proof: []byte("p")}, "proof:4"},
 		{GetFoldedFileIPAProofMsg, &GetFoldedFileIPAProofPacket{ID: 5, Root: root, Files: testFileRefs(), CoeffSets: ScalarMatrixToWire(testCoeffSets()), Domain: "domain"}, "get-folded-file-ipa-proof:5"},
+		{GetFountainOfferMsg, &GetFountainOfferPacket{ID: 6, Root: root, PathKey: []byte("e")}, "get-fountain-offer:6"},
+		{FountainOfferMsg, &FountainOfferPacket{ID: 7}, "fountain-offer:7"},
+		{GetFountainAggregateMsg, &GetFountainAggregatePacket{ID: 8}, "get-fountain-aggregate:8"},
+		{FountainAggregateMsg, &FountainAggregatePacket{ID: 9}, "fountain-aggregate:9"},
 	}
 	for _, tt := range tests {
 		payload, err := rlp.EncodeToBytes(tt.msg)
@@ -450,6 +458,26 @@ func (h *recordingHandler) HandleGetFoldedFileIPAProof(packet *GetFoldedFileIPAP
 
 func (h *recordingHandler) HandleFoldedFileIPAProof(packet *FoldedFileIPAProofPacket) error {
 	h.events = append(h.events, "folded-file-ipa-proof:"+itoa(packet.ID))
+	return nil
+}
+
+func (h *recordingHandler) HandleGetFountainOffer(packet *GetFountainOfferPacket) error {
+	h.events = append(h.events, "get-fountain-offer:"+itoa(packet.ID))
+	return nil
+}
+
+func (h *recordingHandler) HandleFountainOffer(packet *FountainOfferPacket) error {
+	h.events = append(h.events, "fountain-offer:"+itoa(packet.ID))
+	return nil
+}
+
+func (h *recordingHandler) HandleGetFountainAggregate(packet *GetFountainAggregatePacket) error {
+	h.events = append(h.events, "get-fountain-aggregate:"+itoa(packet.ID))
+	return nil
+}
+
+func (h *recordingHandler) HandleFountainAggregate(packet *FountainAggregatePacket) error {
+	h.events = append(h.events, "fountain-aggregate:"+itoa(packet.ID))
 	return nil
 }
 

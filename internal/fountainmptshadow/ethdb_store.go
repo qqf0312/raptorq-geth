@@ -436,6 +436,13 @@ func (s *EthDBStore) Root(height uint64) (common.Hash, bool, error) {
 	return root, true, nil
 }
 
+// EpochAggregate loads the unchanged node/epoch aggregate identified by its
+// content ID. It is exposed for the recovery transport; callers must still run
+// VerifyEpochAggregate before trusting network-loaded data.
+func (s *EthDBStore) EpochAggregate(height uint64, id common.Hash) (*EpochAggregate, error) {
+	return s.epochAggregate(height, id)
+}
+
 func (s *EthDBStore) EncodedPath(root common.Hash, key []byte) (*EncodedPath, bool, error) {
 	blob, err := s.get(pathKey(root, key))
 	if err != nil || blob == nil {

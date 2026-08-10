@@ -23,6 +23,15 @@ type Sender interface {
 	SendFoldedFileIPAProof(res FoldedFileIPAProofPacket) error
 }
 
+// FountainSender is optional and keeps the original Sender interface stable
+// for existing proof transports and test doubles.
+type FountainSender interface {
+	SendGetFountainOffer(req GetFountainOfferPacket) error
+	SendFountainOffer(res FountainOfferPacket) error
+	SendGetFountainAggregate(req GetFountainAggregatePacket) error
+	SendFountainAggregate(res FountainAggregatePacket) error
+}
+
 type Receiver interface {
 	Receive() (Packet, error)
 }
@@ -57,6 +66,22 @@ func (s *MessageSender) SendGetFoldedFileIPAProof(req GetFoldedFileIPAProofPacke
 
 func (s *MessageSender) SendFoldedFileIPAProof(res FoldedFileIPAProofPacket) error {
 	return s.transport.Send(FoldedFileIPAProofMsg, &res)
+}
+
+func (s *MessageSender) SendGetFountainOffer(req GetFountainOfferPacket) error {
+	return s.transport.Send(GetFountainOfferMsg, &req)
+}
+
+func (s *MessageSender) SendFountainOffer(res FountainOfferPacket) error {
+	return s.transport.Send(FountainOfferMsg, &res)
+}
+
+func (s *MessageSender) SendGetFountainAggregate(req GetFountainAggregatePacket) error {
+	return s.transport.Send(GetFountainAggregateMsg, &req)
+}
+
+func (s *MessageSender) SendFountainAggregate(res FountainAggregatePacket) error {
+	return s.transport.Send(FountainAggregateMsg, &res)
 }
 
 type MessageReceiver struct {
